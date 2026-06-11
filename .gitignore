@@ -1,0 +1,14 @@
+# Pastas de sistema e ambiente
+venv/
+.env
+__pycache__/
+node_modules/
+
+# PASTAS PESADAS (Ollama e Docker) - ISSO É O QUE ESTÁ DANDO ERRO
+blobs/
+manifests/
+docker-volumes/
+
+# Arquivos temporários
+*.log
+*.pyc

@@ -1,0 +1,263 @@
+# 🧠 ProMind — Assistente Profissional com IA Local
+
+> Motor de conhecimento contextualizado por profissão. Você sobe seus documentos, a IA responde **exclusivamente com base neles** — sem vazar dados para a nuvem.
+
+---
+
+## 📐 Arquitetura
+
+```
+Frontend (React + Vite + Tailwind)
+        │
+        │  POST /upload   POST /chat   POST /onboarding/complete
+        ▼
+Backend (FastAPI · main.py)
+        │                   │
+        ▼                   ▼
+  ingestao.py          consulta.py
+  Chunking +           RAG + system
+  embeddings           prompt por profissão
+        │                   │
+        └────────┬──────────┘
+                 ▼
+            Qdrant (Docker)          Ollama (local)
+            Vetores por coleção  ◄── nomic-embed-text
+                                     llama3.1
+
+── Parcial ──────────────────────────────────────────
+  PostgreSQL (Docker) — tabela de usuários e sessões
+                        (models.py pronto, migrate pendente)
+
+── Faltando ─────────────────────────────────────────
+  Auto-indexer por profissão (STJ, DATASUS, MEC → Qdrant)
+  Web scraper / crawler      (Trafilatura + fila async)
+```
+
+---
+
+## 🗂️ Estrutura de pastas
+
+```
+ProMind/
+├── backend/
+│   ├── main.py            # API FastAPI (upload, chat, onboarding)
+│   ├── ingestao.py        # Loader → Chunking → Embedding → Qdrant
+│   ├── consulta.py        # RAG: busca vetorial + Ollama
+│   ├── auto_indexer.py    # Indexação automática de fontes públicas
+│   ├── auth.py            # Hash de senha + JWT
+│   ├── models.py          # ORM SQLAlchemy (User, Collection, Document)
+│   ├── database.py        # Conexão PostgreSQL
+│   └── data/              # Arquivos enviados (por coleção)
+│
+├── frontend/
+│   └── src/
+│       └── App.tsx        # SPA completa (login → onboarding → chat)
+│
+├── docker-compose.yml     # Qdrant + PostgreSQL + pgAdmin
+├── requirements.txt
+└── gerar_contexto.py      # Utilitário: exporta código para LLM
+```
+
+---
+
+## ⚡ Pré-requisitos
+
+| Ferramenta | Versão mínima | Para quê |
+|------------|---------------|----------|
+| Python | 3.10+ | Backend |
+| Node.js | 18+ | Frontend |
+| Docker Desktop | qualquer | Qdrant + Postgres |
+| [Ollama](https://ollama.com) | qualquer | Modelos locais |
+
+---
+
+## 🚀 Setup completo
+
+### 1. Suba os serviços Docker
+
+```bash
+docker compose up -d
+```
+
+Isso inicia:
+- **Qdrant** em `localhost:6333`
+- **PostgreSQL** em `localhost:5432`
+- **pgAdmin** em `localhost:8080` (admin@admin.com / admin)
+
+### 2. Baixe os modelos no Ollama
+
+```bash
+# Modelo de chat
+ollama pull llama3.1
+
+# Modelo de embeddings (768 dims)
+ollama pull nomic-embed-text
+```
+
+### 3. Backend
+
+```bash
+cd backend
+
+# Crie e ative o ambiente virtual
+python -m venv venv
+venv\Scripts\activate        # Windows
+# source venv/bin/activate   # Linux/Mac
+
+# Instale as dependências
+pip install -r requirements.txt
+
+# Suba a API
+python main.py
+# → http://localhost:8000
+# → Docs: http://localhost:8000/docs
+```
+
+### 4. Frontend
+
+```bash
+cd frontend
+npm install
+npm run dev
+# → http://localhost:5173
+```
+
+---
+
+## 🔌 Endpoints da API
+
+| Método | Rota | Descrição |
+|--------|------|-----------|
+| `POST` | `/upload` | Envia arquivo e indexa no Qdrant |
+| `POST` | `/chat` | Pergunta RAG na coleção do usuário |
+| `POST` | `/onboarding/complete` | Dispara auto-indexer de fontes públicas |
+| `GET`  | `/health` | Status da API |
+
+### Exemplo — upload
+
+```bash
+curl -X POST http://localhost:8000/upload \
+  -F "file=@contrato.pdf" \
+  -F "profession=Advogado" \
+  -F "sub_area=civel" \
+  -F "estado=São Paulo"
+```
+
+### Exemplo — chat
+
+```bash
+curl -X POST http://localhost:8000/chat \
+  -H "Content-Type: application/json" \
+  -d '{
+    "question": "Quais são as cláusulas de rescisão?",
+    "collection_name": "advogado_civel_são_paulo",
+    "profession": "Advogado",
+    "sub_area": "civel"
+  }'
+```
+
+---
+
+## 📁 Formatos de arquivo suportados
+
+| Formato | Extensão |
+|---------|----------|
+| PDF | `.pdf` |
+| Word | `.docx`, `.doc` |
+| PowerPoint | `.pptx`, `.ppt` |
+| Excel | `.xlsx`, `.xls` |
+| CSV | `.csv` |
+| Texto / Markdown | `.txt`, `.md` |
+| Pacote compactado | `.zip` |
+
+---
+
+## 🧩 Como funciona o isolamento de contexto
+
+Cada usuário tem sua própria coleção no Qdrant, nomeada automaticamente:
+
+```
+{profissão}_{subárea}_{estado}         → advogado_civel_sao_paulo
+{profissão}_{subárea}_{matéria}        → professor_pub_matematica
+{profissão}_{subárea}                  → medico_pediatria
+```
+
+A IA responde **apenas** com chunks da coleção daquele usuário — nenhum documento vaza entre contas.
+
+---
+
+## 🔧 Variáveis de ambiente (opcionais)
+
+Crie um `.env` na pasta `backend/`:
+
+```env
+# Segurança JWT — MUDE EM PRODUÇÃO
+JWT_SECRET=mude-isso-em-producao
+
+# Qdrant
+QDRANT_HOST=localhost
+QDRANT_PORT=6333
+
+# Ollama — modelo de chat
+CHAT_MODEL=llama3.1
+
+# Banco de dados
+DATABASE_URL=postgresql://admin:password123@localhost:5432/knowledge_engine
+```
+
+---
+
+## 📋 O que está implementado vs. pendente
+
+### ✅ Implementado
+- Onboarding multi-etapa (identidade → profissão → subárea → localização)
+- Upload e indexação de múltiplos formatos (PDF, DOCX, PPTX, XLSX, ZIP...)
+- RAG com system prompt personalizado por profissão
+- Isolamento de coleção por usuário
+- Interface de chat com dark/light mode
+- Autenticação com JWT (estrutura pronta)
+
+### 🟡 Parcial
+- **PostgreSQL** — `models.py` com User/Collection/Document pronto, mas `migrate` e integração com os endpoints ainda não feita
+
+### ❌ Faltando
+- **Auto-indexer ativo** — `auto_indexer.py` existe, mas as fontes públicas (STJ, DATASUS, MEC) precisam ser expandidas e testadas
+- **Tabela de usuários real** — endpoints de `/register` e `/login` com persistência no Postgres
+- **Web scraper / crawler** — fila assíncrona para indexar URLs arbitrárias via Trafilatura
+- **Autenticação nos endpoints** — hoje qualquer um acessa `/upload` e `/chat` sem token
+- **Multi-usuário real** — hoje a coleção é por profissão/subárea, não por `user_id`
+
+---
+
+## 🛡️ Segurança — avisos importantes
+
+> ⚠️ Este projeto está em fase de desenvolvimento. **Não use em produção** sem antes:
+
+1. Trocar `JWT_SECRET` por um valor seguro gerado com `openssl rand -hex 32`
+2. Trocar as senhas padrão do Docker (`password123`, `admin`)
+3. Adicionar autenticação nos endpoints `/upload` e `/chat`
+4. Restringir `allow_origins` no CORS para o domínio real
+
+---
+
+## 🤝 Contribuindo
+
+```bash
+# Clone
+git clone https://github.com/seu-usuario/promind.git
+
+# Crie uma branch
+git checkout -b feat/nome-da-feature
+
+# Commit
+git commit -m "feat: descrição clara"
+
+# Pull request
+git push origin feat/nome-da-feature
+```
+
+---
+
+## 📄 Licença
+
+MIT — use, modifique e distribua à vontade.
