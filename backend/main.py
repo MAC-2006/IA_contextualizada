@@ -1,21 +1,47 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware # <--- Importado
 from pydantic import BaseModel
 from typing import Optional
 import shutil
 import os
 
+from database import init_db
 from ingestao import processar_arquivo
 from consulta import responder_pergunta
+from auth_router import router as auth_router
 
-app = FastAPI(title="ProMind API")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Cria as tabelas no banco ao iniciar o servidor."""
+    init_db()
+    yield
+
+app = FastAPI(title="ProMind API", lifespan=lifespan)
+
+# 1. Middleware de Sessão (Obrigatório para Google Login / Authlib)
+# Ele usa o JWT_SECRET do seu .env para proteger os dados da sessão
+app.add_middleware(
+    SessionMiddleware, 
+    secret_key=os.getenv("JWT_SECRET", "uma-chave-muito-secreta-provisoria")
+)
+
+# 2. Configuração de CORS
+# Ajustado para ler a URL do seu frontend do Codespace definida no .env
+frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[frontend_url],
+    allow_credentials=True,   # OBRIGATÓRIO para cookies httpOnly funcionarem
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 3. Rotas de autenticação
+app.include_router(auth_router)
+
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -33,7 +59,7 @@ def build_collection_name(
     return base
 
 
-# ─── Onboarding Complete (chama o auto-indexer) ───────────────────────────────
+# ─── Onboarding Complete ──────────────────────────────────────────────────────
 
 class OnboardingRequest(BaseModel):
     profession: str
@@ -44,17 +70,12 @@ class OnboardingRequest(BaseModel):
 
 @app.post("/onboarding/complete")
 async def onboarding_complete(req: OnboardingRequest):
-    """
-    Chamado ao finalizar o onboarding.
-    Dispara o auto-indexer em background para indexar fontes públicas.
-    """
     col = req.collection_name or build_collection_name(
         req.profession, req.sub_area or "geral", req.state
     )
     try:
         from auto_indexer import auto_indexar
         import asyncio
-        # Roda em background para não bloquear o frontend
         asyncio.create_task(
             auto_indexar(
                 profession=req.profession,
@@ -64,7 +85,6 @@ async def onboarding_complete(req: OnboardingRequest):
             )
         )
     except Exception as e:
-        # Não falha o onboarding se o auto-indexer tiver problema
         print(f"[onboarding] auto_indexer ignorado: {e}")
 
     return {"status": "ok", "collection": col}
@@ -86,7 +106,6 @@ async def upload_file(
 
     data_dir = os.path.join("data", col)
     os.makedirs(data_dir, exist_ok=True)
-
     file_path = os.path.join(data_dir, file.filename)
 
     with open(file_path, "wb") as buffer:
@@ -104,11 +123,7 @@ async def upload_file(
                 "nivel": nivel or "",
             },
         )
-        return {
-            "status": "success",
-            "filename": file.filename,
-            "collection": col,
-        }
+        return {"status": "success", "filename": file.filename, "collection": col}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -126,7 +141,6 @@ class ChatRequest(BaseModel):
 async def chat(req: ChatRequest):
     if not req.question.strip():
         raise HTTPException(status_code=400, detail="Pergunta vazia.")
-
     try:
         answer = responder_pergunta(
             question=req.question,

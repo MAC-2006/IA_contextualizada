@@ -17,3 +17,11 @@ passlib[bcrypt]
 python-jose[cryptography]
 trafilatura
 httpx
+
+# Auth extras
+pyotp
+qrcode[pil]
+authlib
+itsdangerous
+Pillow
+email-validator

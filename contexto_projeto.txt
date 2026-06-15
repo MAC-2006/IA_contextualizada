@@ -1,52 +1,12 @@
 
 ==================================================
-ARQUIVO: docker-compose.yml
-==================================================
-
-version: '3.8'
-
-services:
-  qdrant:
-    image: qdrant/qdrant:latest
-    container_name: knowledge_qdrant
-    ports:
-      - "6333:6333"
-    volumes:
-      - ./docker-volumes/qdrant:/qdrant/storage
-
-  db:
-    image: postgres:15-alpine
-    container_name: knowledge_db
-    environment:
-      POSTGRES_USER: admin
-      POSTGRES_PASSWORD: password123
-      POSTGRES_DB: knowledge_engine
-    ports:
-      - "5432:5432"
-    volumes:
-      - ./docker-volumes/postgres:/var/lib/postgresql/data
-
-  pgadmin:
-    image: dpage/pgadmin4
-    container_name: knowledge_pgadmin
-    environment:
-      PGADMIN_DEFAULT_EMAIL: admin@admin.com
-      PGADMIN_DEFAULT_PASSWORD: admin
-    ports:
-      - "8080:80"
-
-networks:
-  default:
-    name: knowledge-network
-
-==================================================
 ARQUIVO: gerar_contexto.py
 ==================================================
 
 import os
 
 # Configurações
-ROOT_DIR = "D:/IA_contextualizada"
+ROOT_DIR = "."
 OUTPUT_FILE = "contexto_projeto.txt"
 # Pastas que não queremos ler (muito pesadas ou irrelevantes)
 IGNORE_DIRS = {
@@ -92,11 +52,12 @@ ARQUIVO: requirements.txt
 ==================================================
 
 fastapi
-uvicorn
+uvicorn[standard]
 python-multipart
 qdrant-client
 langchain
 langchain-community
+langchain-text-splitters
 sentence-transformers
 PyMuPDF
 python-docx
@@ -110,664 +71,172 @@ python-jose[cryptography]
 trafilatura
 httpx
 
-==================================================
-ARQUIVO: backend\auth.py
-==================================================
-
-from passlib.context import CryptContext
-from jose import jwt
-import datetime, os
-
-SECRET    = os.getenv("JWT_SECRET", "mude-isso-em-producao")
-ALGORITHM = "HS256"
-pwd_ctx   = CryptContext(schemes=["bcrypt"])
-
-def hash_password(pw):    return pwd_ctx.hash(pw)
-def verify_password(pw, h): return pwd_ctx.verify(pw, h)
-def create_token(user_id: str) -> str:
-    exp = datetime.datetime.utcnow() + datetime.timedelta(days=7)
-    return jwt.encode({"sub": user_id, "exp": exp}, SECRET, algorithm=ALGORITHM)
-def decode_token(token: str) -> str:
-    return jwt.decode(token, SECRET, algorithms=[ALGORITHM])["sub"]
+# Auth extras
+pyotp
+qrcode[pil]
+authlib
+itsdangerous
+Pillow
+email-validator
 
 ==================================================
-ARQUIVO: backend\auto_indexer.py
+ARQUIVO: docker-compose.yml
 ==================================================
 
-# backend/auto_indexer.py
-import httpx
-import trafilatura   # pip install trafilatura
-from ingestao import processar_arquivo
-import tempfile, os
+version: '3.8'
 
-# Mapa de fontes por profissão/subárea
-SOURCES = {
-    ("Advogado", "civel"): [
-        "https://www.planalto.gov.br/ccivil_03/leis/l10406compilada.htm",   # Código Civil
-        "https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2015/lei/l13105.htm", # CPC
-    ],
-    ("Advogado", "trab"): [
-        "https://www.planalto.gov.br/ccivil_03/decreto-lei/del5452.htm",   # CLT
-    ],
-    ("Médico", "clinica"): [
-        "https://bvsms.saude.gov.br/bvs/publicacoes/",
-    ],
-    ("Professor", "pub"): [
-        "http://basenacionalcomum.mec.gov.br/",
-    ],
-    # ... adicione mais fontes conforme necessário
-}
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: knowledge_qdrant
+    ports:
+      - "6333:6333"
+    volumes:
+      - ./docker-volumes/qdrant:/qdrant/storage
 
-async def auto_indexar(profession: str, sub_area: str, state: str, collection_name: str):
-    """
-    Busca fontes públicas relevantes e as indexa na coleção do usuário.
-    Chamado ao finalizar o onboarding.
-    """
-    key = (profession, sub_area)
-    urls = SOURCES.get(key, [])
+  db:
+    image: postgres:15-alpine
+    container_name: knowledge_db
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: password123
+      POSTGRES_DB: knowledge_engine
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./docker-volumes/postgres:/var/lib/postgresql/data
 
-    for url in urls:
-        try:
-            async with httpx.AsyncClient(timeout=30) as client:
-                resp = await client.get(url, follow_redirects=True)
-            
-            # Extrai texto limpo com trafilatura
-            texto = trafilatura.extract(resp.text, include_links=False, include_tables=True)
-            if not texto or len(texto) < 200:
-                continue
-            
-            # Salva como arquivo temporário e processa igual a um upload
-            with tempfile.NamedTemporaryFile(mode="w", suffix=".txt",
-                                            delete=False, encoding="utf-8") as f:
-                f.write(texto)
-                tmp_path = f.name
-            
-            processar_arquivo(
-                caminho_arquivo=tmp_path,
-                collection_name=collection_name,
-                metadata_extra={
-                    "source_type": "auto_index",
-                    "source_url": url,
-                    "profession": profession,
-                    "sub_area": sub_area,
-                }
-            )
-            os.unlink(tmp_path)
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: knowledge_pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@admin.com
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "8080:80"
 
-        except Exception as e:
-            print(f"[auto_indexer] Erro em {url}: {e}")
+networks:
+  default:
+    name: knowledge-network
 
 ==================================================
-ARQUIVO: backend\consulta.py
+ARQUIVO: frontend/tsconfig.node.json
 ==================================================
 
-import os
-from typing import Optional
+{
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo",
+    "target": "es2023",
+    "lib": ["ES2023"],
+    "module": "esnext",
+    "types": ["node"],
+    "skipLibCheck": true,
 
-from qdrant_client import QdrantClient
-import ollama
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
 
-# ─── Config ───────────────────────────────────────────────────────────────────
-
-QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
-QDRANT_PORT = int(os.getenv("QDRANT_PORT", 6333))
-EMBED_MODEL = "nomic-embed-text"
-CHAT_MODEL = os.getenv("CHAT_MODEL", "llama3.1")
-TOP_K = 5  # quantos chunks recuperar por pergunta
-
-client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
-
-# ─── System prompts por profissão ─────────────────────────────────────────────
-
-SYSTEM_PROMPTS = {
-    "advogado": (
-        "Você é um assistente jurídico especializado. "
-        "Responda APENAS com base nos trechos de documentos fornecidos abaixo. "
-        "Cite a fonte (nome do arquivo e página) quando possível. "
-        "Se a informação não estiver nos documentos, diga claramente que não encontrou. "
-        "Use linguagem técnica adequada ao Direito, mas seja claro e objetivo."
-    ),
-    "médico": (
-        "Você é um assistente médico especializado. "
-        "Responda APENAS com base nos trechos de documentos fornecidos abaixo. "
-        "Cite a fonte (nome do arquivo) quando possível. "
-        "Se a informação não estiver nos documentos, diga claramente que não encontrou. "
-        "Use terminologia médica precisa. Nunca forneça diagnósticos ou prescrições — "
-        "apenas analise e resuma as informações contidas nos documentos."
-    ),
-    "professor": (
-        "Você é um assistente pedagógico especializado. "
-        "Responda APENAS com base nos trechos de documentos fornecidos abaixo. "
-        "Cite a fonte (nome do arquivo) quando possível. "
-        "Se a informação não estiver nos documentos, diga claramente que não encontrou. "
-        "Adapte a linguagem ao contexto educacional, com foco em clareza didática."
-    ),
-    "geral": (
-        "Você é um assistente especializado em análise de documentos. "
-        "Responda APENAS com base nos trechos de documentos fornecidos abaixo. "
-        "Cite a fonte (nome do arquivo) quando possível. "
-        "Se a informação não estiver nos documentos, diga claramente que não encontrou."
-    ),
+    /* Linting */
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["vite.config.ts"]
 }
 
 
-# ─── Helpers ──────────────────────────────────────────────────────────────────
+==================================================
+ARQUIVO: frontend/vite.config.ts
+==================================================
 
-def get_embedding(text: str) -> list[float]:
-    response = ollama.embeddings(model=EMBED_MODEL, prompt=text)
-    return response["embedding"]
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
 
-
-def buscar_chunks(question: str, collection_name: str, top_k: int = TOP_K) -> list[dict]:
-    """Busca os chunks mais relevantes no Qdrant para a pergunta."""
-    if not client.collection_exists(collection_name):
-        return []
-
-    query_vector = get_embedding(question)
-    results = client.search(
-        collection_name=collection_name,
-        query_vector=query_vector,
-        limit=top_k,
-        with_payload=True,
-    )
-
-    chunks = []
-    for hit in results:
-        payload = hit.payload or {}
-        chunks.append({
-            "text": payload.get("text", ""),
-            "source": payload.get("source", "desconhecido"),
-            "page": payload.get("page", ""),
-            "score": round(hit.score, 3),
-        })
-    return chunks
-
-
-def montar_contexto(chunks: list[dict]) -> str:
-    """Formata os chunks recuperados em um bloco de contexto para o LLM."""
-    if not chunks:
-        return "Nenhum documento relevante encontrado na base de conhecimento."
-
-    partes = []
-    for i, c in enumerate(chunks, 1):
-        source_info = c["source"]
-        if c["page"]:
-            source_info += f", página {c['page']}"
-        partes.append(f"[Trecho {i} — Fonte: {source_info}]\n{c['text']}")
-
-    return "\n\n---\n\n".join(partes)
-
-
-# ─── Main: responder_pergunta ─────────────────────────────────────────────────
-
-def responder_pergunta(
-    question: str,
-    collection_name: str,
-    profession: Optional[str] = None,
-    sub_area: Optional[str] = None,
-) -> str:
-    """
-    Pipeline RAG completo:
-    1. Busca os chunks mais relevantes na coleção do usuário.
-    2. Monta o prompt com contexto + pergunta.
-    3. Envia ao modelo local via Ollama.
-    4. Retorna a resposta gerada.
-    """
-    # Seleciona o system prompt pela profissão
-    prof_key = (profession or "geral").lower()
-    system_prompt = SYSTEM_PROMPTS.get(prof_key, SYSTEM_PROMPTS["geral"])
-    if sub_area:
-        system_prompt += f"\n\nEspecialidade ativa: {sub_area}."
-
-    # Recupera contexto
-    chunks = buscar_chunks(question, collection_name)
-    contexto = montar_contexto(chunks)
-
-    # Prompt final
-    user_message = (
-        f"Documentos disponíveis:\n\n{contexto}\n\n"
-        f"---\n\n"
-        f"Pergunta: {question}\n\n"
-        f"Responda em português, de forma clara e direta, baseando-se estritamente "
-        f"nos documentos acima."
-    )
-
-    # Chamada ao modelo local
-    response = ollama.chat(
-        model=CHAT_MODEL,
-        messages=[
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_message},
-        ],
-    )
-
-    return response["message"]["content"]
+// https://vite.dev/config/
+export default defineConfig({
+  plugins: [react()],
+})
 
 
 ==================================================
-ARQUIVO: backend\database.py
+ARQUIVO: frontend/package.json
 ==================================================
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-import os
-
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://admin:password123@localhost:5432/knowledge_engine")
-engine  = create_engine(DATABASE_URL)
-Session = sessionmaker(bind=engine)
-
-def get_db():
-    db = Session()
-    try:
-        yield db
-    finally:
-        db.close()
-
-==================================================
-ARQUIVO: backend\ingestao.py
-==================================================
-
-import os
-import random
-import zipfile
-import tempfile
-from typing import Optional
-
-from langchain_community.document_loaders import (
-    PyMuPDFLoader,
-    Docx2txtLoader,
-    UnstructuredPowerPointLoader,
-)
-from langchain.schema import Document
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from qdrant_client import QdrantClient
-from qdrant_client.models import Distance, VectorParams, PointStruct
-import pandas as pd
-import ollama
-
-# ─── Config ───────────────────────────────────────────────────────────────────
-
-QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
-QDRANT_PORT = int(os.getenv("QDRANT_PORT", 6333))
-EMBED_MODEL = "nomic-embed-text"
-VECTOR_SIZE = 768
-CHUNK_SIZE = 1000
-CHUNK_OVERLAP = 100
-
-client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
-
-# ─── Embedding ────────────────────────────────────────────────────────────────
-
-def get_embedding(text: str) -> list[float]:
-    """Gera embedding via Ollama (nomic-embed-text, 768 dims)."""
-    response = ollama.embeddings(model=EMBED_MODEL, prompt=text)
-    return response["embedding"]
-
-
-# ─── Loaders por tipo de arquivo ─────────────────────────────────────────────
-
-def _load_pdf(path: str) -> list[Document]:
-    return PyMuPDFLoader(path).load()
-
-
-def _load_docx(path: str) -> list[Document]:
-    return Docx2txtLoader(path).load()
-
-
-def _load_pptx(path: str) -> list[Document]:
-    return UnstructuredPowerPointLoader(path).load()
-
-
-def _load_xlsx(path: str) -> list[Document]:
-    """Lê todas as abas e converte para texto."""
-    docs = []
-    xls = pd.ExcelFile(path)
-    for sheet in xls.sheet_names:
-        df = pd.read_excel(xls, sheet_name=sheet).fillna("")
-        text = f"[Planilha: {sheet}]\n{df.to_string(index=False)}"
-        docs.append(Document(page_content=text, metadata={"sheet": sheet}))
-    return docs
-
-
-def _load_txt(path: str) -> list[Document]:
-    with open(path, "r", encoding="utf-8", errors="ignore") as f:
-        return [Document(page_content=f.read())]
-
-
-def _load_file(path: str) -> list[Document]:
-    """Roteador: escolhe o loader certo pela extensão."""
-    ext = os.path.splitext(path)[1].lower()
-    loaders = {
-        ".pdf": _load_pdf,
-        ".docx": _load_docx,
-        ".doc": _load_docx,
-        ".pptx": _load_pptx,
-        ".ppt": _load_pptx,
-        ".xlsx": _load_xlsx,
-        ".xls": _load_xlsx,
-        ".csv": lambda p: [Document(page_content=pd.read_csv(p).to_string())],
-        ".txt": _load_txt,
-        ".md": _load_txt,
-    }
-    loader_fn = loaders.get(ext)
-    if loader_fn is None:
-        print(f"[ingestao] Extensão não suportada: {ext} — ignorando {path}")
-        return []
-    return loader_fn(path)
-
-
-# ─── ZIP handler ──────────────────────────────────────────────────────────────
-
-def _extract_zip(zip_path: str, dest_dir: str) -> list[str]:
-    """Extrai ZIP/RAR e retorna lista de caminhos de arquivos."""
-    extracted = []
-    with zipfile.ZipFile(zip_path, "r") as z:
-        z.extractall(dest_dir)
-        for name in z.namelist():
-            full = os.path.join(dest_dir, name)
-            if os.path.isfile(full):
-                extracted.append(full)
-    return extracted
-
-
-# ─── Core: processar_arquivo ─────────────────────────────────────────────────
-
-def processar_arquivo(
-    caminho_arquivo: str,
-    collection_name: str,
-    metadata_extra: Optional[dict] = None,
-) -> None:
-    """
-    Lê, divide em chunks, gera embeddings e salva no Qdrant.
-    Suporta: PDF, DOCX, PPTX, XLSX, CSV, TXT, MD, ZIP.
-    O isolamento de contexto é garantido pelo collection_name exclusivo por
-    profissão + subárea + localidade/matéria.
-    """
-    print(f"[ingestao] Iniciando: {caminho_arquivo} → coleção '{collection_name}'")
-
-    # Garante que a coleção existe com as dimensões certas
-    if not client.collection_exists(collection_name):
-        client.create_collection(
-            collection_name=collection_name,
-            vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
-        )
-
-    ext = os.path.splitext(caminho_arquivo)[1].lower()
-
-    # Se for ZIP, extrai e processa cada arquivo individualmente
-    if ext in (".zip", ".rar"):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            files = _extract_zip(caminho_arquivo, tmpdir)
-            for f in files:
-                try:
-                    processar_arquivo(f, collection_name, metadata_extra)
-                except Exception as e:
-                    print(f"[ingestao] Erro ao processar {f}: {e}")
-        return
-
-    # Carrega o documento
-    docs = _load_file(caminho_arquivo)
-    if not docs:
-        print(f"[ingestao] Nenhum conteúdo extraído de {caminho_arquivo}")
-        return
-
-    # Divide em chunks
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=CHUNK_SIZE,
-        chunk_overlap=CHUNK_OVERLAP,
-        separators=["\n\n", "\n", ". ", " ", ""],
-    )
-    chunks = splitter.split_documents(docs)
-    print(f"[ingestao] {len(chunks)} chunks gerados")
-
-    # Gera embeddings e monta pontos Qdrant
-    points = []
-    filename = os.path.basename(caminho_arquivo)
-    for chunk in chunks:
-        try:
-            vector = get_embedding(chunk.page_content)
-        except Exception as e:
-            print(f"[ingestao] Erro ao gerar embedding: {e}")
-            continue
-
-        payload = {
-            "text": chunk.page_content,
-            "source": filename,
-            "page": chunk.metadata.get("page", 0),
-        }
-        if metadata_extra:
-            payload.update(metadata_extra)
-
-        points.append(
-            PointStruct(
-                id=random.randint(0, 2**31),
-                vector=vector,
-                payload=payload,
-            )
-        )
-
-    if points:
-        # Upsert em lotes de 100 para não sobrecarregar
-        batch_size = 100
-        for i in range(0, len(points), batch_size):
-            client.upsert(
-                collection_name=collection_name,
-                points=points[i : i + batch_size],
-            )
-        print(f"[ingestao] ✅ {len(points)} vetores salvos em '{collection_name}'")
-    else:
-        print(f"[ingestao] ⚠️  Nenhum vetor gerado para {caminho_arquivo}")
+{
+  "name": "frontend",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@tailwindcss/postcss": "^4.3.0",
+    "axios": "^1.17.0",
+    "lucide-react": "^1.17.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^24.12.3",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.1",
+    "autoprefixer": "^10.5.0",
+    "eslint": "^10.3.0",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.6.0",
+    "postcss": "^8.5.15",
+    "tailwindcss": "^4.3.0",
+    "typescript": "~6.0.2",
+    "typescript-eslint": "^8.59.2",
+    "vite": "^8.0.12"
+  }
+}
 
 
 ==================================================
-ARQUIVO: backend\main.py
+ARQUIVO: frontend/tsconfig.app.json
 ==================================================
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from typing import Optional
-import shutil
-import os
+{
+  "compilerOptions": {
+    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
+    "target": "es2023",
+    "lib": ["ES2023", "DOM"],
+    "module": "esnext",
+    "types": ["vite/client"],
+    "skipLibCheck": true,
 
-from ingestao import processar_arquivo
-from consulta import responder_pergunta
+    /* Bundler mode */
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
 
-app = FastAPI(title="ProMind API")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# ─── Helpers ──────────────────────────────────────────────────────────────────
-
-def build_collection_name(
-    profession: str,
-    sub_area: str,
-    estado: Optional[str] = None,
-    materia: Optional[str] = None,
-) -> str:
-    """
-    Gera um nome único de coleção Qdrant por profissão + subárea + contexto extra.
-    Exemplos:
-      advogado_civel_sao_paulo
-      medico_pediatria
-      professor_pub_matematica
-    """
-    base = f"{profession}_{sub_area}".lower().replace(" ", "_")
-    if profession == "advogado" and estado:
-        base = f"{base}_{estado.lower().replace(' ', '_')}"
-    if profession == "professor" and materia:
-        base = f"{base}_{materia.lower().replace(' ', '_')}"
-    return base
-
-
-# ─── Upload ───────────────────────────────────────────────────────────────────
-
-@app.post("/upload")
-async def upload_file(
-    file: UploadFile = File(...),
-    profession: str = Form("geral"),
-    sub_area: str = Form("geral"),
-    collection_name: Optional[str] = Form(None),
-    estado: Optional[str] = Form(None),
-    materia: Optional[str] = Form(None),
-    nivel: Optional[str] = Form(None),
-):
-    """
-    Recebe um arquivo (PDF, DOCX, PPTX, XLSX, TXT, ZIP) e o indexa no Qdrant.
-    A coleção é isolada por profissão + subárea + contexto, garantindo que cada
-    workspace só veja seus próprios documentos.
-    """
-    # Resolve o nome final da coleção
-    col = collection_name or build_collection_name(profession, sub_area, estado, materia)
-
-    # Pasta de armazenamento organizada por coleção
-    data_dir = os.path.join("data", col)
-    os.makedirs(data_dir, exist_ok=True)
-
-    file_path = os.path.join(data_dir, file.filename)
-
-    # Salva fisicamente
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-
-    # Processa e indexa no Qdrant
-    try:
-        processar_arquivo(
-            caminho_arquivo=file_path,
-            collection_name=col,
-            metadata_extra={
-                "profession": profession,
-                "sub_area": sub_area,
-                "estado": estado or "",
-                "materia": materia or "",
-                "nivel": nivel or "",
-            },
-        )
-        return {
-            "status": "success",
-            "filename": file.filename,
-            "collection": col,
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# ─── Chat ─────────────────────────────────────────────────────────────────────
-
-class ChatRequest(BaseModel):
-    question: str
-    collection_name: str
-    profession: Optional[str] = None
-    sub_area: Optional[str] = None
-
-
-@app.post("/chat")
-async def chat(req: ChatRequest):
-    """
-    Recebe uma pergunta e responde com base APENAS nos documentos
-    indexados na coleção do usuário (RAG puro).
-    """
-    if not req.question.strip():
-        raise HTTPException(status_code=400, detail="Pergunta vazia.")
-
-    try:
-        answer = responder_pergunta(
-            question=req.question,
-            collection_name=req.collection_name,
-            profession=req.profession,
-            sub_area=req.sub_area,
-        )
-        return {"answer": answer, "collection": req.collection_name}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-# ─── Health ───────────────────────────────────────────────────────────────────
-
-@app.get("/health")
-async def health():
-    return {"status": "ok"}
-
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
+    /* Linting */
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "erasableSyntaxOnly": true,
+    "noFallthroughCasesInSwitch": true
+  },
+  "include": ["src"]
+}
 
 
 ==================================================
-ARQUIVO: backend\models.py
-==================================================
-
-# backend/models.py
-from sqlalchemy import Column, String, DateTime, ForeignKey, Text, JSON
-from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import declarative_base
-import uuid, datetime
-
-Base = declarative_base()
-
-class User(Base):
-    __tablename__ = "users"
-    id             = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    email          = Column(String, unique=True, nullable=False)
-    password_hash  = Column(String, nullable=False)
-    full_name      = Column(String)
-    preferred_name = Column(String)
-    organization   = Column(String)
-    city           = Column(String)
-    state          = Column(String)
-    profession     = Column(String)      # Advogado | Médico | Professor | Outro
-    sub_area_id    = Column(String)
-    custom_desc    = Column(Text)
-    created_at     = Column(DateTime, default=datetime.datetime.utcnow)
-
-class Collection(Base):
-    __tablename__ = "collections"
-    id             = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id        = Column(UUID(as_uuid=True), ForeignKey("users.id"))
-    name           = Column(String, nullable=False)   # chave no Qdrant
-    profession     = Column(String)
-    sub_area       = Column(String)
-    state          = Column(String)
-    meta           = Column(JSON, default={})
-    created_at     = Column(DateTime, default=datetime.datetime.utcnow)
-
-class Document(Base):
-    __tablename__ = "documents"
-    id             = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    collection_id  = Column(UUID(as_uuid=True), ForeignKey("collections.id"))
-    filename       = Column(String)
-    source_type    = Column(String)   # "upload" | "auto_index" | "scrape"
-    source_url     = Column(String)
-    chunks_count   = Column(Integer, default=0)
-    indexed_at     = Column(DateTime, default=datetime.datetime.utcnow)
-
-==================================================
-ARQUIVO: frontend\index.html
-==================================================
-
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>frontend</title>
-  </head>
-  <body>
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
-</html>
-
-
-==================================================
-ARQUIVO: frontend\package-lock.json
+ARQUIVO: frontend/package-lock.json
 ==================================================
 
 {
@@ -4186,80 +3655,26 @@ ARQUIVO: frontend\package-lock.json
 
 
 ==================================================
-ARQUIVO: frontend\package.json
+ARQUIVO: frontend/index.html
 ==================================================
 
-{
-  "name": "frontend",
-  "private": true,
-  "version": "0.0.0",
-  "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "lint": "eslint .",
-    "preview": "vite preview"
-  },
-  "dependencies": {
-    "@tailwindcss/postcss": "^4.3.0",
-    "axios": "^1.17.0",
-    "lucide-react": "^1.17.0",
-    "react": "^19.2.6",
-    "react-dom": "^19.2.6"
-  },
-  "devDependencies": {
-    "@eslint/js": "^10.0.1",
-    "@types/node": "^24.12.3",
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^6.0.1",
-    "autoprefixer": "^10.5.0",
-    "eslint": "^10.3.0",
-    "eslint-plugin-react-hooks": "^7.1.1",
-    "eslint-plugin-react-refresh": "^0.5.2",
-    "globals": "^17.6.0",
-    "postcss": "^8.5.15",
-    "tailwindcss": "^4.3.0",
-    "typescript": "~6.0.2",
-    "typescript-eslint": "^8.59.2",
-    "vite": "^8.0.12"
-  }
-}
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>frontend</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
 
 
 ==================================================
-ARQUIVO: frontend\tsconfig.app.json
-==================================================
-
-{
-  "compilerOptions": {
-    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.app.tsbuildinfo",
-    "target": "es2023",
-    "lib": ["ES2023", "DOM"],
-    "module": "esnext",
-    "types": ["vite/client"],
-    "skipLibCheck": true,
-
-    /* Bundler mode */
-    "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
-    "verbatimModuleSyntax": true,
-    "moduleDetection": "force",
-    "noEmit": true,
-    "jsx": "react-jsx",
-
-    /* Linting */
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "erasableSyntaxOnly": true,
-    "noFallthroughCasesInSwitch": true
-  },
-  "include": ["src"]
-}
-
-
-==================================================
-ARQUIVO: frontend\tsconfig.json
+ARQUIVO: frontend/tsconfig.json
 ==================================================
 
 {
@@ -4272,116 +3687,136 @@ ARQUIVO: frontend\tsconfig.json
 
 
 ==================================================
-ARQUIVO: frontend\tsconfig.node.json
+ARQUIVO: frontend/src/main.tsx
 ==================================================
 
-{
-  "compilerOptions": {
-    "tsBuildInfoFile": "./node_modules/.tmp/tsconfig.node.tsbuildinfo",
-    "target": "es2023",
-    "lib": ["ES2023"],
-    "module": "esnext",
-    "types": ["node"],
-    "skipLibCheck": true,
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import './index.css'
+import App from './App.tsx'
 
-    /* Bundler mode */
-    "moduleResolution": "bundler",
-    "allowImportingTsExtensions": true,
-    "verbatimModuleSyntax": true,
-    "moduleDetection": "force",
-    "noEmit": true,
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
+)
 
-    /* Linting */
-    "noUnusedLocals": true,
-    "noUnusedParameters": true,
-    "erasableSyntaxOnly": true,
-    "noFallthroughCasesInSwitch": true
-  },
-  "include": ["vite.config.ts"]
+
+==================================================
+ARQUIVO: frontend/src/index.css
+==================================================
+
+@import "tailwindcss";
+
+body {
+  margin: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 10px;
 }
 
 
 ==================================================
-ARQUIVO: frontend\vite.config.ts
-==================================================
-
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-
-// https://vite.dev/config/
-export default defineConfig({
-  plugins: [react()],
-})
-
-
-==================================================
-ARQUIVO: frontend\src\App.css
+ARQUIVO: frontend/src/App.css
 ==================================================
 
 
 
 ==================================================
-ARQUIVO: frontend\src\App.tsx
+ARQUIVO: frontend/src/App.tsx
 ==================================================
 
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Upload, Send, BrainCircuit, Sun, Moon, Menu, X,
   Scale, BookOpen, Stethoscope, ChevronRight, Loader2,
   ArrowLeft, CheckCircle2, FileText, Trash2, LogOut, Plus,
-  User, MapPin, Building2, Sparkles, Search, AlertCircle
+  User, MapPin, Building2, Sparkles, Search, AlertCircle,
+  Eye, EyeOff, ShieldCheck, KeyRound, Copy, Check,
 } from 'lucide-react';
 import axios from 'axios';
+
+// ─── Axios defaults ───────────────────────────────────────────────────────────
+// withCredentials = true é OBRIGATÓRIO para que o browser envie/receba
+// cookies httpOnly entre o frontend (localhost:5173) e o backend (localhost:8000).
+const api = axios.create({
+  baseURL: 'http://localhost:8000',
+  withCredentials: true,
+});
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Screen =
   | 'login'
+  | 'register'
+  | 'twofa_challenge'     // tela de input do código TOTP pós-login
+  | 'twofa_recovery'      // usar código de recuperação
   | 'onboarding_identity'
   | 'onboarding_prof'
   | 'onboarding_sub'
   | 'onboarding_context'
   | 'onboarding_auto_index'
   | 'onboarding_upload'
+  | 'twofa_setup'         // setup opcional de 2FA após onboarding
   | 'chat';
 
 type ProfessionKey = 'Advogado' | 'Médico' | 'Professor' | 'Outro';
 
-interface SubArea {
-  id: string;
-  label: string;
-  desc: string;
-}
-
-interface Message {
-  role: 'user' | 'assistant';
-  content: string;
-}
-
-interface UploadedFile {
-  name: string;
-  size: number;
-  status: 'pending' | 'done' | 'error';
-}
+interface SubArea { id: string; label: string; desc: string; }
+interface Message { role: 'user' | 'assistant'; content: string; }
+interface UploadedFile { name: string; size: number; status: 'pending' | 'done' | 'error'; }
 
 interface UserProfile {
-  fullName: string;
-  preferredName: string;
+  // from backend /auth/me
+  id?: string;
   email: string;
-  password: string;
+  full_name?: string;
+  preferred_name?: string;
+  avatar_url?: string;
+  totp_enabled?: boolean;
+  email_verified?: boolean;
+  onboarding_completed?: boolean;
+  // local onboarding extras (not persisted in this MVP)
   profession: ProfessionKey | null;
   customProfession: string;
   customProfessionDesc: string;
   subArea: SubArea | null;
-  // context
   city: string;
   state: string;
-  organization: string; // empresa/escola/clínica
-  // profession-specific
-  estado: string;        // advogado
-  materia: string;       // professor
-  nivel: string;         // professor
-  rede: string;         // professor: publica/privada/superior
+  organization: string;
+  materia: string;
+  nivel: string;
+  // form fields (not stored in profile after submit)
+  password?: string;
+}
+
+// ─── Password strength ────────────────────────────────────────────────────────
+
+interface StrengthRule { label: string; test: (p: string) => boolean; }
+const STRENGTH_RULES: StrengthRule[] = [
+  { label: 'Mínimo 10 caracteres',         test: p => p.length >= 10 },
+  { label: 'Letra minúscula',              test: p => /[a-z]/.test(p) },
+  { label: 'Letra maiúscula',              test: p => /[A-Z]/.test(p) },
+  { label: 'Número',                       test: p => /\d/.test(p) },
+  { label: 'Caractere especial (!@#...)',  test: p => /[^A-Za-z0-9]/.test(p) },
+];
+function strengthScore(p: string) { return STRENGTH_RULES.filter(r => r.test(p)).length; }
+function strengthLabel(score: number) {
+  if (score <= 2) return { label: 'Fraca', color: 'bg-red-500' };
+  if (score <= 3) return { label: 'Razoável', color: 'bg-yellow-500' };
+  if (score <= 4) return { label: 'Boa', color: 'bg-blue-500' };
+  return { label: 'Forte', color: 'bg-emerald-500' };
 }
 
 // ─── Data ─────────────────────────────────────────────────────────────────────
@@ -4395,27 +3830,27 @@ const PROFESSIONS: { key: ProfessionKey; icon: React.ReactNode; desc: string }[]
 
 const SUB_AREAS: Record<string, SubArea[]> = {
   Advogado: [
-    { id: 'civel',   label: 'Direito Cível',        desc: 'Contratos, indenizações, família' },
-    { id: 'penal',   label: 'Direito Penal',         desc: 'Processo penal, crimes, defesa' },
-    { id: 'trab',    label: 'Direito Trabalhista',   desc: 'CLT, reclamações, acordos' },
-    { id: 'emp',     label: 'Direito Empresarial',   desc: 'Societário, contratos comerciais' },
-    { id: 'trib',    label: 'Direito Tributário',    desc: 'Impostos, planejamento fiscal' },
-    { id: 'pub',     label: 'Direito Público',       desc: 'Administrativo, licitações' },
+    { id: 'civel', label: 'Direito Cível',      desc: 'Contratos, indenizações, família' },
+    { id: 'penal', label: 'Direito Penal',       desc: 'Processo penal, crimes, defesa' },
+    { id: 'trab',  label: 'Direito Trabalhista', desc: 'CLT, reclamações, acordos' },
+    { id: 'emp',   label: 'Direito Empresarial', desc: 'Societário, contratos comerciais' },
+    { id: 'trib',  label: 'Direito Tributário',  desc: 'Impostos, planejamento fiscal' },
+    { id: 'pub',   label: 'Direito Público',     desc: 'Administrativo, licitações' },
   ],
   Médico: [
-    { id: 'clinica',   label: 'Clínica Geral',   desc: 'Atenção primária, prontuários' },
-    { id: 'cirurgia',  label: 'Cirurgia',        desc: 'Protocolos cirúrgicos, pós-op' },
-    { id: 'pediatria', label: 'Pediatria',       desc: 'Saúde infantil, crescimento' },
-    { id: 'psiq',      label: 'Psiquiatria',     desc: 'DSM, medicamentos, laudos' },
-    { id: 'cardio',    label: 'Cardiologia',     desc: 'ECG, protocolos cardíacos' },
-    { id: 'gineco',    label: 'Ginecologia',     desc: 'Saúde da mulher, obstetrícia' },
+    { id: 'clinica',   label: 'Clínica Geral', desc: 'Atenção primária, prontuários' },
+    { id: 'cirurgia',  label: 'Cirurgia',       desc: 'Protocolos cirúrgicos, pós-op' },
+    { id: 'pediatria', label: 'Pediatria',      desc: 'Saúde infantil, crescimento' },
+    { id: 'psiq',      label: 'Psiquiatria',    desc: 'DSM, medicamentos, laudos' },
+    { id: 'cardio',    label: 'Cardiologia',    desc: 'ECG, protocolos cardíacos' },
+    { id: 'gineco',    label: 'Ginecologia',    desc: 'Saúde da mulher, obstetrícia' },
   ],
   Professor: [
-    { id: 'pub',    label: 'Rede Pública',     desc: 'Estado/Município, BNCC, SARESP' },
-    { id: 'priv',   label: 'Rede Privada',     desc: 'Apostilados, projetos pedagógicos' },
-    { id: 'sup',    label: 'Ensino Superior',  desc: 'Faculdades, pós-graduação' },
-    { id: 'idiomas',label: 'Idiomas',          desc: 'Inglês, espanhol, outros' },
-    { id: 'tecnico',label: 'Técnico/Profiss.', desc: 'SENAI, SENAC, cursos técnicos' },
+    { id: 'pub',    label: 'Rede Pública',    desc: 'Estado/Município, BNCC, SARESP' },
+    { id: 'priv',   label: 'Rede Privada',    desc: 'Apostilados, projetos pedagógicos' },
+    { id: 'sup',    label: 'Ensino Superior', desc: 'Faculdades, pós-graduação' },
+    { id: 'idiomas',label: 'Idiomas',         desc: 'Inglês, espanhol, outros' },
+    { id: 'tecnico',label: 'Técnico/Profiss.',desc: 'SENAI, SENAC, cursos técnicos' },
   ],
   Outro: [],
 };
@@ -4434,27 +3869,6 @@ const PROF_PLACEHOLDERS: Record<string, string> = {
   Professor: 'Ex: Crie um plano de aula com base neste material...',
   Outro:     'Pergunte qualquer coisa sobre seus documentos...',
 };
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function buildCollectionName(profile: UserProfile): string {
-  const prof = (profile.profession === 'Outro'
-    ? profile.customProfession
-    : profile.profession ?? 'geral'
-  ).toLowerCase().replace(/\s+/g, '_');
-  const sub  = profile.subArea?.id ?? 'geral';
-  const st   = profile.state.toLowerCase().replace(/\s+/g, '_') || 'br';
-  const base = `${prof}_${sub}_${st}`;
-  if (profile.profession === 'Professor' && profile.materia)
-    return `${base}_${profile.materia.toLowerCase().replace(/\s+/g, '_')}`;
-  return base;
-}
-
-// ─── Fake auto-indexer (simula busca + indexação de bases públicas) ───────────
 
 const AUTO_INDEX_STEPS: Record<string, string[]> = {
   Advogado: [
@@ -4486,82 +3900,287 @@ const AUTO_INDEX_STEPS: Record<string, string[]> = {
   ],
 };
 
-// ─── Component ────────────────────────────────────────────────────────────────
+function formatBytes(b: number) {
+  if (b < 1024) return `${b} B`;
+  if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+  return `${(b / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function buildCollectionName(profile: UserProfile): string {
+  const prof = (profile.profession === 'Outro'
+    ? profile.customProfession
+    : profile.profession ?? 'geral'
+  ).toLowerCase().replace(/\s+/g, '_');
+  const sub = profile.subArea?.id ?? 'geral';
+  const st  = profile.state.toLowerCase().replace(/\s+/g, '_') || 'br';
+  const base = `${prof}_${sub}_${st}`;
+  if (profile.profession === 'Professor' && profile.materia)
+    return `${base}_${profile.materia.toLowerCase().replace(/\s+/g, '_')}`;
+  return base;
+}
 
 const emptyProfile = (): UserProfile => ({
-  fullName: '', preferredName: '', email: '', password: '',
-  profession: null, customProfession: '', customProfessionDesc: '',
-  subArea: null,
-  city: '', state: '', organization: '',
-  estado: '', materia: '', nivel: '',rede: '',
+  email: '', profession: null, customProfession: '', customProfessionDesc: '',
+  subArea: null, city: '', state: '', organization: '', materia: '', nivel: '',
 });
 
-export default function App() {
-  const [screen, setScreen]       = useState<Screen>('login');
-  const [profile, setProfile]     = useState<UserProfile>(emptyProfile());
-  const [loginError, setLoginError] = useState('');
+// ─── Component ────────────────────────────────────────────────────────────────
 
-  const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
-  const [isUploading, setIsUploading]     = useState(false);
+export default function App() {
+  const [screen, setScreen]     = useState<Screen>('login');
+  const [profile, setProfile]   = useState<UserProfile>(emptyProfile());
+
+  // auth form state
+  const [email, setEmail]       = useState('');
+  const [password, setPassword] = useState('');
+  const [fullName, setFullName] = useState('');
+  const [showPw, setShowPw]     = useState(false);
+  const [authError, setAuthError] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+
+  // 2FA challenge
+  const [challengeToken, setChallengeToken] = useState('');
+  const [totpCode, setTotpCode]     = useState('');
+  const [recoveryCode, setRecoveryCode] = useState('');
+
+  // 2FA setup
+  const [setupSecret, setSetupSecret]   = useState('');
+  const [setupQR, setSetupQR]           = useState('');
+  const [setupCode, setSetupCode]       = useState('');
+  const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
+  const [copiedCode, setCopiedCode]     = useState<string | null>(null);
+  const [setupStep, setSetupStep]       = useState<'qr' | 'codes'>('qr');
+
+  // chat & files
+  const [uploadedFiles, setUploadedFiles]   = useState<UploadedFile[]>([]);
+  const [isUploading, setIsUploading]       = useState(false);
   const fileInputRef  = useRef<HTMLInputElement>(null);
   const fileInputRef2 = useRef<HTMLInputElement>(null);
-
-  const [messages, setMessages]   = useState<Message[]>([]);
-  const [input, setInput]         = useState('');
-  const [isSending, setIsSending] = useState(false);
-  const [isDark, setIsDark]       = useState(true);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [uploadDrawerOpen, setUploadDrawerOpen] = useState(false);
+  const [messages, setMessages]             = useState<Message[]>([]);
+  const [input, setInput]                   = useState('');
+  const [isSending, setIsSending]           = useState(false);
+  const [isDark, setIsDark]                 = useState(true);
+  const [sidebarOpen, setSidebarOpen]       = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Auto-index state
-  const [autoIndexStep, setAutoIndexStep] = useState(0);
-  const [autoIndexDone, setAutoIndexDone] = useState(false);
+  // auto-indexer
+  const [autoIndexStep, setAutoIndexStep]   = useState(0);
+  const [autoIndexDone, setAutoIndexDone]   = useState(false);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Run fake auto-indexer when entering that screen
+  // On mount: try to restore session from httpOnly cookie
+  useEffect(() => {
+    api.get('/auth/me').then(res => {
+      setProfile(p => ({ ...p, ...res.data }));
+      if (res.data.onboarding_completed) setScreen('chat');
+      else setScreen('onboarding_identity');
+    }).catch(() => {
+      // Not authenticated — stay on login
+    });
+  }, []);
+
+  // Auto-indexer animation
   useEffect(() => {
     if (screen !== 'onboarding_auto_index') return;
-    axios.post('http://localhost:8000/onboarding/complete', {
+    setAutoIndexStep(0);
+    setAutoIndexDone(false);
+    const steps = AUTO_INDEX_STEPS[profile.profession ?? 'Outro'];
+    let step = 0;
+    const interval = setInterval(() => {
+      step += 1;
+      setAutoIndexStep(step);
+      if (step >= steps.length - 1) clearInterval(interval);
+    }, 900);
+    api.post('/onboarding/complete', {
       profession: profile.profession,
-      sub_area:   profile.subArea?.id,
-      state:      profile.state,
+      sub_area: profile.subArea?.id,
+      state: profile.state,
       collection_name: buildCollectionName(profile),
-    }).then(() => setAutoIndexDone(true));
+    }).catch(e => console.warn('[onboarding]', e))
+      .finally(() => setTimeout(() => setAutoIndexDone(true), steps.length * 900 + 400));
+    return () => clearInterval(interval);
   }, [screen]);
 
-  // ── Helpers ──────────────────────────────────────────────────────────────────
+  // ── Helpers ──────────────────────────────────────────────────────────────
 
-  function upd(patch: Partial<UserProfile>) {
-    setProfile(prev => ({ ...prev, ...patch }));
+  const upd = useCallback((patch: Partial<UserProfile>) => {
+    setProfile(p => ({ ...p, ...patch }));
+  }, []);
+
+  function clearAuthForm() {
+    setEmail(''); setPassword(''); setFullName('');
+    setAuthError(''); setShowPw(false);
   }
 
-  function getWelcome(): string {
-    const name = profile.preferredName || profile.fullName.split(' ')[0] || 'Profissional';
-    const prof = profile.profession === 'Outro'
-      ? profile.customProfession : profile.profession;
-    const sub  = profile.subArea?.label ?? '';
-    const org  = profile.organization ? ` — ${profile.organization}` : '';
-    const loc  = profile.city ? ` (${profile.city}/${profile.state})` : '';
-    const docs = uploadedFiles.length > 0
-      ? `\n\nVocê adicionou **${uploadedFiles.length} arquivo(s)**. Posso responder com base exclusivamente nesses documentos.`
-      : '\n\nAinde não há arquivos pessoais enviados. Use "Adicionar arquivos" quando quiser.';
-    return `Olá, ${name}! Seu espaço está pronto como **${prof}${sub ? ' · ' + sub : ''}**${org}${loc}.\n\nJá indexei bases públicas da sua área de atuação.${docs}`;
-  }
+  // ── Auth: Register ────────────────────────────────────────────────────────
 
-  // ── Login ─────────────────────────────────────────────────────────────────
-
-  function handleLogin(e: React.FormEvent) {
+  async function handleRegister(e: React.FormEvent) {
     e.preventDefault();
-    if (!profile.email || !profile.password) {
-      setLoginError('Preencha e-mail e senha.');
+    if (strengthScore(password) < 5) {
+      setAuthError('Crie uma senha mais forte antes de continuar.');
       return;
     }
-    setLoginError('');
-    setScreen('onboarding_identity');
+    setAuthLoading(true); setAuthError('');
+    try {
+      const res = await api.post('/auth/register', {
+        full_name: fullName.trim(),
+        email: email.trim().toLowerCase(),
+        password,
+      });
+      setProfile(p => ({ ...p, ...res.data }));
+      clearAuthForm();
+      setScreen('onboarding_identity');
+    } catch (err: any) {
+      const detail = err.response?.data?.detail;
+      if (typeof detail === 'string') setAuthError(detail);
+      else if (detail?.errors) setAuthError(detail.errors.join(' · '));
+      else setAuthError('Erro ao criar conta. Tente novamente.');
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  // ── Auth: Login ───────────────────────────────────────────────────────────
+
+  async function handleLogin(e: React.FormEvent) {
+    e.preventDefault();
+    setAuthLoading(true); setAuthError('');
+    try {
+      const res = await api.post('/auth/login', {
+        email: email.trim().toLowerCase(),
+        password,
+      });
+      clearAuthForm();
+      if (res.data.requires_2fa) {
+        setChallengeToken(res.data.challenge_token);
+        setScreen('twofa_challenge');
+      } else {
+        setProfile(p => ({ ...p, ...res.data.user }));
+        if (res.data.user?.onboarding_completed) setScreen('chat');
+        else setScreen('onboarding_identity');
+      }
+    } catch (err: any) {
+      setAuthError(err.response?.data?.detail ?? 'E-mail ou senha incorretos.');
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  // ── Auth: Google OAuth ────────────────────────────────────────────────────
+  // Backend faz o Authorization Code flow e redireciona de volta para o
+  // frontend. Nada de token no frontend — o backend emite o cookie httpOnly.
+
+  function handleGoogleLogin() {
+    window.location.href = 'http://localhost:8000/auth/google/login';
+  }
+
+  // Handle redirect back from Google (/auth/callback on the frontend)
+  useEffect(() => {
+    if (window.location.pathname === '/auth/callback') {
+      api.get('/auth/me').then(res => {
+        setProfile(p => ({ ...p, ...res.data }));
+        window.history.replaceState({}, '', '/');
+        if (res.data.onboarding_completed) setScreen('chat');
+        else setScreen('onboarding_identity');
+      }).catch(() => setScreen('login'));
+    }
+    // Handle 2FA challenge redirect from Google
+    const params = new URLSearchParams(window.location.search);
+    const twofa = params.get('twofa_challenge');
+    if (twofa) {
+      setChallengeToken(twofa);
+      window.history.replaceState({}, '', '/');
+      setScreen('twofa_challenge');
+    }
+  }, []);
+
+  // ── Auth: 2FA login ───────────────────────────────────────────────────────
+
+  async function handle2FALogin(e: React.FormEvent) {
+    e.preventDefault();
+    setAuthLoading(true); setAuthError('');
+    try {
+      const res = await api.post('/auth/2fa/login', {
+        challenge_token: challengeToken,
+        code: totpCode.replace(/\s/g, ''),
+      });
+      setProfile(p => ({ ...p, ...res.data.user }));
+      setTotpCode('');
+      if (res.data.user?.onboarding_completed) setScreen('chat');
+      else setScreen('onboarding_identity');
+    } catch (err: any) {
+      setAuthError(err.response?.data?.detail ?? 'Código inválido. Tente novamente.');
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  async function handle2FARecovery(e: React.FormEvent) {
+    e.preventDefault();
+    setAuthLoading(true); setAuthError('');
+    try {
+      const res = await api.post('/auth/2fa/login/recovery', {
+        challenge_token: challengeToken,
+        recovery_code: recoveryCode.trim().toUpperCase(),
+      });
+      setProfile(p => ({ ...p, ...res.data.user }));
+      setRecoveryCode('');
+      if (res.data.user?.onboarding_completed) setScreen('chat');
+      else setScreen('onboarding_identity');
+    } catch (err: any) {
+      setAuthError(err.response?.data?.detail ?? 'Código inválido.');
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  // ── 2FA setup ─────────────────────────────────────────────────────────────
+
+  async function initiate2FASetup() {
+    setAuthError('');
+    try {
+      const res = await api.post('/auth/2fa/setup');
+      setSetupSecret(res.data.secret);
+      setSetupQR(res.data.qr_code_base64);
+      setSetupStep('qr');
+      setSetupCode('');
+      setScreen('twofa_setup');
+    } catch (err: any) {
+      setAuthError(err.response?.data?.detail ?? 'Erro ao iniciar setup de 2FA.');
+    }
+  }
+
+  async function handleEnable2FA(e: React.FormEvent) {
+    e.preventDefault();
+    setAuthLoading(true); setAuthError('');
+    try {
+      const res = await api.post('/auth/2fa/enable', { code: setupCode.replace(/\s/g, '') });
+      setRecoveryCodes(res.data.recovery_codes);
+      setSetupStep('codes');
+      upd({ totp_enabled: true });
+    } catch (err: any) {
+      setAuthError(err.response?.data?.detail ?? 'Código inválido.');
+    } finally {
+      setAuthLoading(false);
+    }
+  }
+
+  function copyCode(code: string) {
+    navigator.clipboard.writeText(code);
+    setCopiedCode(code);
+    setTimeout(() => setCopiedCode(null), 1500);
+  }
+
+  // ── Logout ────────────────────────────────────────────────────────────────
+
+  async function handleLogout() {
+    await api.post('/auth/logout').catch(() => {});
+    setProfile(emptyProfile());
+    setMessages([]); setUploadedFiles([]);
+    setScreen('login');
   }
 
   // ── File upload ───────────────────────────────────────────────────────────
@@ -4574,19 +4193,18 @@ export default function App() {
     }));
     setUploadedFiles(prev => [...prev, ...newFiles]);
     setIsUploading(true);
-
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      const fd   = new FormData();
+      const fd = new FormData();
       fd.append('file', file);
       fd.append('profession', profile.profession ?? 'Geral');
-      fd.append('sub_area',   profile.subArea?.id ?? 'geral');
+      fd.append('sub_area', profile.subArea?.id ?? 'geral');
       fd.append('collection_name', collection);
-      fd.append('estado',  profile.state);
+      fd.append('estado', profile.state);
       fd.append('materia', profile.materia);
-      fd.append('nivel',   profile.nivel);
+      fd.append('nivel', profile.nivel);
       try {
-        await axios.post('http://localhost:8000/upload', fd);
+        await api.post('/upload', fd);
         setUploadedFiles(prev => prev.map(f => f.name === file.name ? { ...f, status: 'done' } : f));
       } catch {
         setUploadedFiles(prev => prev.map(f => f.name === file.name ? { ...f, status: 'error' } : f));
@@ -4604,18 +4222,15 @@ export default function App() {
     setMessages(prev => [...prev, { role: 'user', content: text }]);
     setIsSending(true);
     try {
-      const res = await axios.post('http://localhost:8000/chat', {
-        question:        text,
+      const res = await api.post('/chat', {
+        question: text,
         collection_name: buildCollectionName(profile),
-        profession:      profile.profession,
-        sub_area:        profile.subArea?.id,
+        profession: profile.profession,
+        sub_area: profile.subArea?.id,
       });
       setMessages(prev => [...prev, { role: 'assistant', content: res.data.answer ?? 'Sem resposta.' }]);
     } catch {
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: '❌ Falha na conexão com o servidor. Verifique se o backend está rodando.',
-      }]);
+      setMessages(prev => [...prev, { role: 'assistant', content: '❌ Falha na conexão com o servidor.' }]);
     } finally {
       setIsSending(false);
     }
@@ -4626,17 +4241,26 @@ export default function App() {
   }
 
   function handleFinish() {
-    setMessages([{ role: 'assistant', content: getWelcome() }]);
+    const name = profile.preferred_name || profile.full_name?.split(' ')[0] || 'Profissional';
+    const prof = profile.profession === 'Outro' ? profile.customProfession : profile.profession;
+    const sub  = profile.subArea?.label ?? '';
+    const org  = profile.organization ? ` — ${profile.organization}` : '';
+    const docs = uploadedFiles.length > 0
+      ? `\n\nVocê adicionou **${uploadedFiles.length} arquivo(s)**. Posso responder com base nesses documentos.`
+      : '\n\nNenhum arquivo enviado ainda. Use "Adicionar arquivos" quando quiser.';
+    setMessages([{
+      role: 'assistant',
+      content: `Olá, ${name}! Seu espaço está pronto como **${prof}${sub ? ' · ' + sub : ''}**${org}.\n\nJá indexei bases públicas da sua área de atuação.${docs}`,
+    }]);
     setScreen('chat');
   }
 
   // ─── Theme tokens ─────────────────────────────────────────────────────────
 
-  const bg        = isDark ? 'bg-[#080c14]'     : 'bg-slate-50';
-  const text       = isDark ? 'text-slate-100'   : 'text-slate-900';
-  const muted      = isDark ? 'text-slate-400'   : 'text-slate-500';
+  const bg         = isDark ? 'bg-[#080c14]'   : 'bg-slate-50';
+  const text       = isDark ? 'text-slate-100'  : 'text-slate-900';
+  const muted      = isDark ? 'text-slate-400'  : 'text-slate-500';
   const card       = isDark ? 'bg-[#0f1623] border-slate-800/80' : 'bg-white border-slate-200';
-  const surface    = isDark ? 'bg-[#161d2e]'     : 'bg-slate-100';
   const inputCls   = isDark
     ? 'bg-[#0f1623] border-slate-700 text-white placeholder-slate-500 focus:border-blue-500'
     : 'bg-white border-slate-300 text-slate-900 placeholder-slate-400 focus:border-blue-500';
@@ -4648,8 +4272,9 @@ export default function App() {
   const activeCard = isDark
     ? 'border-blue-500 bg-blue-500/10 ring-1 ring-blue-500/30'
     : 'border-blue-500 bg-blue-50 ring-1 ring-blue-200';
-
-  // ── Progress bar component ────────────────────────────────────────────────
+  const msgAssistant = isDark
+    ? 'bg-[#161d2e] border border-slate-800 text-slate-200'
+    : 'bg-white border border-slate-200 text-slate-700 shadow-sm';
 
   const STEPS: Screen[] = [
     'onboarding_identity','onboarding_prof','onboarding_sub',
@@ -4673,10 +4298,8 @@ export default function App() {
 
   function BackBtn({ to }: { to: Screen }) {
     return (
-      <button
-        onClick={() => setScreen(to)}
-        className={`flex items-center gap-1.5 text-xs mb-5 ${muted} hover:text-blue-400 transition`}
-      >
+      <button onClick={() => setScreen(to)}
+        className={`flex items-center gap-1.5 text-xs mb-5 ${muted} hover:text-blue-400 transition`}>
         <ArrowLeft size={13} /> Voltar
       </button>
     );
@@ -4689,7 +4312,6 @@ export default function App() {
   if (screen === 'login') return (
     <div className={`min-h-screen flex items-center justify-center ${bg} ${text} px-4 py-8`}>
       <div className={`w-full max-w-sm border rounded-2xl p-8 ${card}`}>
-
         <div className="flex items-center gap-2.5 mb-8">
           <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center">
             <BrainCircuit size={19} className="text-white" />
@@ -4697,21 +4319,20 @@ export default function App() {
           <span className="text-xl font-bold tracking-tight">ProMind</span>
         </div>
 
-        <h1 className="text-2xl font-bold mb-1">Boas-vindas</h1>
+        <h1 className="text-2xl font-bold mb-1">Bem-vindo de volta</h1>
         <p className={`text-sm mb-6 ${muted}`}>Seu assistente profissional inteligente.</p>
 
-        {/* OAuth */}
-        {[
-          { label: 'Entrar com Google', svg: <svg width="17" height="17" viewBox="0 0 24 24"><path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57C21.36 18.17 22.56 15.42 22.56 12.25z"/><path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg> },
-          { label: 'Entrar com Apple',  svg: <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor"><path d="M12.017 0C5.396 0 .029 5.367.029 11.987c0 5.079 3.158 9.417 7.618 11.162-.105-.949-.2-2.405.042-3.441.218-.937 1.407-5.965 1.407-5.965s-.359-.719-.359-1.782c0-1.668.967-2.914 2.171-2.914 1.023 0 1.518.769 1.518 1.69 0 1.029-.655 2.568-.994 3.995-.283 1.194.599 2.169 1.777 2.169 2.133 0 3.772-2.249 3.772-5.495 0-2.873-2.064-4.882-5.012-4.882-3.414 0-5.418 2.561-5.418 5.207 0 1.031.397 2.138.893 2.738a.36.36 0 0 1 .083.345l-.333 1.36c-.053.22-.174.267-.402.161-1.499-.698-2.436-2.889-2.436-4.649 0-3.785 2.75-7.262 7.929-7.262 4.163 0 7.398 2.967 7.398 6.931 0 4.136-2.607 7.464-6.227 7.464-1.216 0-2.359-.632-2.75-1.378l-.748 2.853c-.271 1.043-1.002 2.35-1.492 3.146C9.57 23.812 10.763 24 12.017 24c6.624 0 11.99-5.367 11.99-11.987C24.007 5.367 18.641 0 12.017 0z"/></svg> },
-        ].map(b => (
-          <button key={b.label}
-            onClick={() => setScreen('onboarding_identity')}
-            className={`w-full flex items-center justify-center gap-2.5 py-2.5 mb-2 text-sm font-medium ${btnGhost}`}
-          >
-            {b.svg} {b.label}
-          </button>
-        ))}
+        {/* Google */}
+        <button onClick={handleGoogleLogin}
+          className={`w-full flex items-center justify-center gap-2.5 py-2.5 mb-4 text-sm font-medium ${btnGhost}`}>
+          <svg width="17" height="17" viewBox="0 0 24 24">
+            <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57C21.36 18.17 22.56 15.42 22.56 12.25z"/>
+            <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+            <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+            <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+          </svg>
+          Entrar com Google
+        </button>
 
         <div className="flex items-center gap-3 my-4">
           <div className={`flex-1 h-px ${isDark ? 'bg-slate-800' : 'bg-slate-200'}`} />
@@ -4720,66 +4341,343 @@ export default function App() {
         </div>
 
         <form onSubmit={handleLogin} className="space-y-3">
-          <input type="email" placeholder="seu@email.com"
-            value={profile.email}
-            onChange={e => upd({ email: e.target.value })}
+          <input type="email" placeholder="seu@email.com" value={email}
+            onChange={e => setEmail(e.target.value)} required
             className={`w-full border rounded-xl px-4 py-2.5 text-sm focus:outline-none ${inputCls}`}
           />
-          <input type="password" placeholder="Senha"
-            value={profile.password}
-            onChange={e => upd({ password: e.target.value })}
-            className={`w-full border rounded-xl px-4 py-2.5 text-sm focus:outline-none ${inputCls}`}
-          />
-          {loginError && (
+          <div className="relative">
+            <input type={showPw ? 'text' : 'password'} placeholder="Senha" value={password}
+              onChange={e => setPassword(e.target.value)} required
+              className={`w-full border rounded-xl px-4 py-2.5 pr-10 text-sm focus:outline-none ${inputCls}`}
+            />
+            <button type="button" tabIndex={-1}
+              onClick={() => setShowPw(v => !v)}
+              className={`absolute right-3 top-1/2 -translate-y-1/2 ${muted}`}>
+              {showPw ? <EyeOff size={15} /> : <Eye size={15} />}
+            </button>
+          </div>
+          {authError && (
             <p className="text-red-400 text-xs flex items-center gap-1.5">
-              <AlertCircle size={12} /> {loginError}
+              <AlertCircle size={12} /> {authError}
             </p>
           )}
-          <button type="submit" className={`w-full py-2.5 text-sm ${btnPrimary}`}>
+          <button type="submit" disabled={authLoading}
+            className={`w-full py-2.5 text-sm ${btnPrimary} disabled:opacity-50 flex items-center justify-center gap-2`}>
+            {authLoading && <Loader2 size={14} className="animate-spin" />}
             Entrar
           </button>
         </form>
 
         <p className={`text-xs text-center mt-4 ${muted}`}>
           Não tem conta?{' '}
-          <button onClick={() => setScreen('onboarding_identity')} className="text-blue-400 hover:underline">
-            Criar grátis
-          </button>
+          <button onClick={() => { setScreen('register'); setAuthError(''); }}
+            className="text-blue-400 hover:underline">Criar grátis</button>
         </p>
       </div>
     </div>
   );
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // ── SCREEN: IDENTITY (nome, como quer ser chamado)
+  // ── SCREEN: REGISTER
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  if (screen === 'register') {
+    const score = strengthScore(password);
+    const { label: swLabel, color: swColor } = strengthLabel(score);
+    return (
+      <div className={`min-h-screen flex items-center justify-center ${bg} ${text} px-4 py-8`}>
+        <div className={`w-full max-w-sm border rounded-2xl p-8 ${card}`}>
+          <div className="flex items-center gap-2.5 mb-8">
+            <div className="w-9 h-9 bg-blue-600 rounded-xl flex items-center justify-center">
+              <BrainCircuit size={19} className="text-white" />
+            </div>
+            <span className="text-xl font-bold tracking-tight">ProMind</span>
+          </div>
+
+          <button onClick={() => { setScreen('login'); setAuthError(''); }}
+            className={`flex items-center gap-1.5 text-xs mb-5 ${muted} hover:text-blue-400 transition`}>
+            <ArrowLeft size={13} /> Voltar para login
+          </button>
+
+          <h1 className="text-2xl font-bold mb-1">Criar conta</h1>
+          <p className={`text-sm mb-6 ${muted}`}>Grátis. Sem cartão de crédito.</p>
+
+          {/* Google */}
+          <button onClick={handleGoogleLogin}
+            className={`w-full flex items-center justify-center gap-2.5 py-2.5 mb-4 text-sm font-medium ${btnGhost}`}>
+            <svg width="17" height="17" viewBox="0 0 24 24">
+              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57C21.36 18.17 22.56 15.42 22.56 12.25z"/>
+              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+            </svg>
+            Cadastrar com Google
+          </button>
+
+          <div className="flex items-center gap-3 my-4">
+            <div className={`flex-1 h-px ${isDark ? 'bg-slate-800' : 'bg-slate-200'}`} />
+            <span className={`text-xs ${muted}`}>ou com e-mail</span>
+            <div className={`flex-1 h-px ${isDark ? 'bg-slate-800' : 'bg-slate-200'}`} />
+          </div>
+
+          <form onSubmit={handleRegister} className="space-y-3">
+            <input type="text" placeholder="Nome completo" value={fullName}
+              onChange={e => setFullName(e.target.value)} required
+              className={`w-full border rounded-xl px-4 py-2.5 text-sm focus:outline-none ${inputCls}`}
+            />
+            <input type="email" placeholder="seu@email.com" value={email}
+              onChange={e => setEmail(e.target.value)} required
+              className={`w-full border rounded-xl px-4 py-2.5 text-sm focus:outline-none ${inputCls}`}
+            />
+            <div>
+              <div className="relative">
+                <input type={showPw ? 'text' : 'password'} placeholder="Senha" value={password}
+                  onChange={e => setPassword(e.target.value)} required
+                  className={`w-full border rounded-xl px-4 py-2.5 pr-10 text-sm focus:outline-none ${inputCls}`}
+                />
+                <button type="button" tabIndex={-1}
+                  onClick={() => setShowPw(v => !v)}
+                  className={`absolute right-3 top-1/2 -translate-y-1/2 ${muted}`}>
+                  {showPw ? <EyeOff size={15} /> : <Eye size={15} />}
+                </button>
+              </div>
+              {/* Strength bar */}
+              {password.length > 0 && (
+                <div className="mt-2">
+                  <div className="flex gap-1 mb-1.5">
+                    {[1,2,3,4,5].map(i => (
+                      <div key={i} className={`flex-1 h-1 rounded-full transition-all ${i <= score ? swColor : isDark ? 'bg-slate-800' : 'bg-slate-200'}`} />
+                    ))}
+                  </div>
+                  <p className={`text-xs mb-1 ${muted}`}>Força: <span className="text-white font-medium">{swLabel}</span></p>
+                  <div className="space-y-0.5">
+                    {STRENGTH_RULES.map(r => (
+                      <p key={r.label} className={`text-[10px] flex items-center gap-1 ${r.test(password) ? 'text-emerald-400' : muted}`}>
+                        {r.test(password) ? <CheckCircle2 size={10} /> : <span className="w-2.5 h-2.5 rounded-full border border-current inline-block" />}
+                        {r.label}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+            {authError && (
+              <p className="text-red-400 text-xs flex items-center gap-1.5">
+                <AlertCircle size={12} /> {authError}
+              </p>
+            )}
+            <button type="submit" disabled={authLoading || score < 5}
+              className={`w-full py-2.5 text-sm ${btnPrimary} disabled:opacity-40 flex items-center justify-center gap-2`}>
+              {authLoading && <Loader2 size={14} className="animate-spin" />}
+              Criar conta
+            </button>
+          </form>
+
+          <p className={`text-[10px] text-center mt-4 ${muted}`}>
+            Ao criar conta, você concorda com nossos Termos de Uso e Política de Privacidade.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ── SCREEN: 2FA CHALLENGE
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  if (screen === 'twofa_challenge') return (
+    <div className={`min-h-screen flex items-center justify-center ${bg} ${text} px-4 py-8`}>
+      <div className={`w-full max-w-sm border rounded-2xl p-8 ${card}`}>
+        <div className="w-12 h-12 bg-blue-600/10 border border-blue-500/30 rounded-2xl flex items-center justify-center mb-5">
+          <ShieldCheck size={22} className="text-blue-400" />
+        </div>
+        <h2 className="text-xl font-bold mb-1">Verificação em dois fatores</h2>
+        <p className={`text-sm mb-6 ${muted}`}>
+          Abra o app autenticador (Google Authenticator, Authy…) e insira o código de 6 dígitos.
+        </p>
+        <form onSubmit={handle2FALogin} className="space-y-3">
+          <input
+            type="text" inputMode="numeric" placeholder="000 000"
+            maxLength={7} value={totpCode}
+            onChange={e => setTotpCode(e.target.value.replace(/[^0-9 ]/g, ''))}
+            className={`w-full border rounded-xl px-4 py-3 text-lg text-center tracking-[0.3em] font-mono focus:outline-none ${inputCls}`}
+          />
+          {authError && (
+            <p className="text-red-400 text-xs flex items-center gap-1.5">
+              <AlertCircle size={12} /> {authError}
+            </p>
+          )}
+          <button type="submit" disabled={authLoading || totpCode.replace(/\s/g,'').length < 6}
+            className={`w-full py-2.5 text-sm ${btnPrimary} disabled:opacity-40 flex items-center justify-center gap-2`}>
+            {authLoading && <Loader2 size={14} className="animate-spin" />}
+            Verificar
+          </button>
+        </form>
+        <button onClick={() => { setScreen('twofa_recovery'); setAuthError(''); }}
+          className={`w-full text-center text-xs mt-4 ${muted} hover:text-blue-400 transition`}>
+          Usar código de recuperação
+        </button>
+        <button onClick={() => { setScreen('login'); setAuthError(''); setChallengeToken(''); }}
+          className={`w-full text-center text-xs mt-2 ${muted} hover:text-slate-300 transition`}>
+          ← Voltar para o login
+        </button>
+      </div>
+    </div>
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ── SCREEN: 2FA RECOVERY
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  if (screen === 'twofa_recovery') return (
+    <div className={`min-h-screen flex items-center justify-center ${bg} ${text} px-4 py-8`}>
+      <div className={`w-full max-w-sm border rounded-2xl p-8 ${card}`}>
+        <div className="w-12 h-12 bg-amber-600/10 border border-amber-500/30 rounded-2xl flex items-center justify-center mb-5">
+          <KeyRound size={22} className="text-amber-400" />
+        </div>
+        <h2 className="text-xl font-bold mb-1">Código de recuperação</h2>
+        <p className={`text-sm mb-6 ${muted}`}>
+          Insira um dos seus códigos de recuperação no formato <span className="font-mono">XXXX-XXXX</span>.
+          Cada código só funciona uma vez.
+        </p>
+        <form onSubmit={handle2FARecovery} className="space-y-3">
+          <input type="text" placeholder="ABCD-EFGH"
+            value={recoveryCode}
+            onChange={e => setRecoveryCode(e.target.value.toUpperCase())}
+            className={`w-full border rounded-xl px-4 py-2.5 text-sm font-mono tracking-wider text-center focus:outline-none ${inputCls}`}
+          />
+          {authError && (
+            <p className="text-red-400 text-xs flex items-center gap-1.5">
+              <AlertCircle size={12} /> {authError}
+            </p>
+          )}
+          <button type="submit" disabled={authLoading || recoveryCode.length < 9}
+            className={`w-full py-2.5 text-sm ${btnPrimary} disabled:opacity-40 flex items-center justify-center gap-2`}>
+            {authLoading && <Loader2 size={14} className="animate-spin" />}
+            Usar código
+          </button>
+        </form>
+        <button onClick={() => { setScreen('twofa_challenge'); setAuthError(''); }}
+          className={`w-full text-center text-xs mt-4 ${muted} hover:text-blue-400 transition`}>
+          ← Usar código do autenticador
+        </button>
+      </div>
+    </div>
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ── SCREEN: 2FA SETUP (optional, accessible from chat sidebar)
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  if (screen === 'twofa_setup') return (
+    <div className={`min-h-screen flex items-center justify-center ${bg} ${text} px-4 py-8`}>
+      <div className={`w-full max-w-sm border rounded-2xl p-8 ${card}`}>
+        <div className="flex items-center gap-2 mb-6">
+          <ShieldCheck size={20} className="text-blue-400" />
+          <h2 className="text-xl font-bold">Ativar autenticação em 2 fatores</h2>
+        </div>
+
+        {setupStep === 'qr' ? (
+          <>
+            <p className={`text-sm mb-4 ${muted}`}>
+              Escaneie o QR code abaixo com seu app autenticador (Google Authenticator, Authy, 1Password…).
+            </p>
+            {setupQR && (
+              <div className="flex justify-center mb-4">
+                <img src={`data:image/png;base64,${setupQR}`}
+                  alt="QR code 2FA" className="w-44 h-44 rounded-xl border border-slate-700" />
+              </div>
+            )}
+            <p className={`text-xs text-center mb-2 ${muted}`}>Ou insira o código manualmente:</p>
+            <div className={`font-mono text-sm text-center tracking-widest py-2 px-3 rounded-lg mb-5 ${isDark ? 'bg-slate-900 text-slate-200' : 'bg-slate-100 text-slate-800'}`}>
+              {setupSecret}
+            </div>
+            <p className={`text-sm mb-3 ${muted}`}>Depois, insira o código gerado pelo app para confirmar:</p>
+            <form onSubmit={handleEnable2FA} className="space-y-3">
+              <input type="text" inputMode="numeric" placeholder="000 000"
+                maxLength={7} value={setupCode}
+                onChange={e => setSetupCode(e.target.value.replace(/[^0-9 ]/g, ''))}
+                className={`w-full border rounded-xl px-4 py-3 text-lg text-center tracking-[0.3em] font-mono focus:outline-none ${inputCls}`}
+              />
+              {authError && (
+                <p className="text-red-400 text-xs flex items-center gap-1.5">
+                  <AlertCircle size={12} /> {authError}
+                </p>
+              )}
+              <button type="submit" disabled={authLoading || setupCode.replace(/\s/g,'').length < 6}
+                className={`w-full py-2.5 text-sm ${btnPrimary} disabled:opacity-40 flex items-center justify-center gap-2`}>
+                {authLoading && <Loader2 size={14} className="animate-spin" />}
+                Confirmar e ativar
+              </button>
+            </form>
+            <button onClick={() => setScreen('chat')}
+              className={`w-full text-center text-xs mt-4 ${muted} hover:text-slate-300 transition`}>
+              Cancelar
+            </button>
+          </>
+        ) : (
+          <>
+            <div className={`flex items-center gap-2 p-3 rounded-xl mb-4 ${isDark ? 'bg-emerald-500/10 border border-emerald-500/30' : 'bg-emerald-50 border border-emerald-200'}`}>
+              <CheckCircle2 size={16} className="text-emerald-400 shrink-0" />
+              <p className="text-sm text-emerald-400 font-medium">2FA ativado com sucesso!</p>
+            </div>
+            <p className="text-sm mb-4">
+              <strong>Salve esses códigos de recuperação agora.</strong>{' '}
+              <span className={muted}>Eles serão exibidos apenas uma vez e são a única forma de acessar
+              sua conta caso perca o dispositivo autenticador.</span>
+            </p>
+            <div className={`rounded-xl border p-4 mb-5 ${isDark ? 'border-slate-800 bg-slate-900/60' : 'border-slate-200 bg-slate-50'}`}>
+              <div className="grid grid-cols-2 gap-2">
+                {recoveryCodes.map(code => (
+                  <button key={code} onClick={() => copyCode(code)}
+                    className={`font-mono text-sm flex items-center justify-between px-3 py-1.5 rounded-lg transition
+                      ${isDark ? 'bg-slate-800 hover:bg-slate-700 text-slate-200' : 'bg-white hover:bg-slate-100 text-slate-800 border border-slate-200'}`}>
+                    {code}
+                    {copiedCode === code
+                      ? <Check size={12} className="text-emerald-400 shrink-0" />
+                      : <Copy size={12} className={`${muted} shrink-0`} />
+                    }
+                  </button>
+                ))}
+              </div>
+            </div>
+            <button onClick={() => setScreen('chat')}
+              className={`w-full py-2.5 text-sm ${btnPrimary}`}>
+              Entendido, salvei os códigos
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // ── SCREEN: IDENTITY
   // ═══════════════════════════════════════════════════════════════════════════
 
   if (screen === 'onboarding_identity') return (
     <div className={`min-h-screen flex items-center justify-center ${bg} ${text} px-4 py-8`}>
       <div className={`w-full max-w-sm border rounded-2xl p-8 ${card}`}>
         <ProgressBar />
-        <BackBtn to="login" />
-
         <div className="flex items-center gap-2 mb-1">
           <User size={18} className="text-blue-400" />
           <h2 className="text-xl font-bold">Quem é você?</h2>
         </div>
         <p className={`text-sm mb-6 ${muted}`}>Vamos personalizar tudo para o seu trabalho.</p>
-
         <div className="space-y-3 mb-6">
           <div>
             <label className={`block text-xs mb-1.5 ${muted}`}>Nome completo</label>
             <input type="text" placeholder="Ex: João da Silva"
-              value={profile.fullName}
-              onChange={e => upd({ fullName: e.target.value })}
+              value={profile.full_name ?? ''}
+              onChange={e => upd({ full_name: e.target.value })}
               className={`w-full border rounded-xl px-4 py-2.5 text-sm focus:outline-none ${inputCls}`}
             />
           </div>
           <div>
             <label className={`block text-xs mb-1.5 ${muted}`}>Como prefere ser chamado?</label>
             <input type="text" placeholder="Ex: João, Dr. Silva, Prof. Ana..."
-              value={profile.preferredName}
-              onChange={e => upd({ preferredName: e.target.value })}
+              value={profile.preferred_name ?? ''}
+              onChange={e => upd({ preferred_name: e.target.value })}
               className={`w-full border rounded-xl px-4 py-2.5 text-sm focus:outline-none ${inputCls}`}
             />
           </div>
@@ -4792,12 +4690,9 @@ export default function App() {
             />
           </div>
         </div>
-
-        <button
-          disabled={!profile.fullName}
+        <button disabled={!profile.full_name}
           onClick={() => setScreen('onboarding_prof')}
-          className={`w-full py-2.5 text-sm ${btnPrimary} disabled:opacity-40 disabled:cursor-not-allowed`}
-        >
+          className={`w-full py-2.5 text-sm ${btnPrimary} disabled:opacity-40 disabled:cursor-not-allowed`}>
           Continuar
         </button>
       </div>
@@ -4813,17 +4708,14 @@ export default function App() {
       <div className={`w-full max-w-sm border rounded-2xl p-8 ${card}`}>
         <ProgressBar />
         <BackBtn to="onboarding_identity" />
-
         <h2 className="text-xl font-bold mb-1">Qual é a sua profissão?</h2>
         <p className={`text-sm mb-6 ${muted}`}>Vamos buscar conteúdo público da sua área automaticamente.</p>
-
         <div className="space-y-2.5 mb-6">
           {PROFESSIONS.map(p => (
             <button key={p.key}
-              onClick={() => { upd({ profession: p.key, subArea: null }); }}
+              onClick={() => upd({ profession: p.key, subArea: null })}
               className={`w-full flex items-center justify-between px-4 py-3.5 rounded-xl border text-left transition
-                ${profile.profession === p.key ? activeCard : isDark ? 'border-slate-800 hover:border-slate-600' : 'border-slate-200 hover:border-slate-300'}`}
-            >
+                ${profile.profession === p.key ? activeCard : isDark ? 'border-slate-800 hover:border-slate-600' : 'border-slate-200 hover:border-slate-300'}`}>
               <div className="flex items-center gap-3">
                 <span className={profile.profession === p.key ? 'text-blue-400' : muted}>{p.icon}</span>
                 <div>
@@ -4835,8 +4727,6 @@ export default function App() {
             </button>
           ))}
         </div>
-
-        {/* Custom profession fields */}
         {profile.profession === 'Outro' && (
           <div className="space-y-3 mb-5">
             <input type="text" placeholder="Sua profissão (ex: Contador, Engenheiro...)"
@@ -4844,7 +4734,7 @@ export default function App() {
               onChange={e => upd({ customProfession: e.target.value })}
               className={`w-full border rounded-xl px-4 py-2.5 text-sm focus:outline-none ${inputCls}`}
             />
-            <textarea placeholder="Descreva o que você faz no dia a dia (quanto mais detalhes, melhor a personalização)"
+            <textarea placeholder="Descreva o que você faz no dia a dia..."
               value={profile.customProfessionDesc}
               onChange={e => upd({ customProfessionDesc: e.target.value })}
               rows={3}
@@ -4852,15 +4742,13 @@ export default function App() {
             />
           </div>
         )}
-
         <button
           disabled={!profile.profession || (profile.profession === 'Outro' && !profile.customProfession)}
           onClick={() => {
             const hasSubs = SUB_AREAS[profile.profession!]?.length > 0;
             setScreen(hasSubs ? 'onboarding_sub' : 'onboarding_context');
           }}
-          className={`w-full py-2.5 text-sm ${btnPrimary} disabled:opacity-40 disabled:cursor-not-allowed`}
-        >
+          className={`w-full py-2.5 text-sm ${btnPrimary} disabled:opacity-40 disabled:cursor-not-allowed`}>
           Continuar
         </button>
       </div>
@@ -4878,17 +4766,13 @@ export default function App() {
         <div className={`w-full max-w-sm border rounded-2xl p-8 ${card}`}>
           <ProgressBar />
           <BackBtn to="onboarding_prof" />
-
           <h2 className="text-xl font-bold mb-1">Área de atuação</h2>
-          <p className={`text-sm mb-5 ${muted}`}>Isso define quais bases de conhecimento buscamos para você.</p>
-
+          <p className={`text-sm mb-5 ${muted}`}>Define quais bases de conhecimento buscamos para você.</p>
           <div className="space-y-2 mb-5 max-h-64 overflow-y-auto pr-1">
             {subs.map(s => (
-              <button key={s.id}
-                onClick={() => upd({ subArea: s })}
+              <button key={s.id} onClick={() => upd({ subArea: s })}
                 className={`w-full flex items-start gap-3 px-4 py-3 rounded-xl border text-left transition
-                  ${profile.subArea?.id === s.id ? activeCard : isDark ? 'border-slate-800 hover:border-slate-600' : 'border-slate-200 hover:border-slate-300'}`}
-              >
+                  ${profile.subArea?.id === s.id ? activeCard : isDark ? 'border-slate-800 hover:border-slate-600' : 'border-slate-200 hover:border-slate-300'}`}>
                 <div>
                   <p className="font-medium text-sm">{s.label}</p>
                   <p className={`text-xs mt-0.5 ${muted}`}>{s.desc}</p>
@@ -4896,8 +4780,6 @@ export default function App() {
               </button>
             ))}
           </div>
-
-          {/* Professor sub-fields */}
           {profile.profession === 'Professor' && (
             <div className="space-y-3 mb-5">
               <div>
@@ -4918,12 +4800,8 @@ export default function App() {
               </div>
             </div>
           )}
-
-          <button
-            disabled={!profile.subArea}
-            onClick={() => setScreen('onboarding_context')}
-            className={`w-full py-2.5 text-sm ${btnPrimary} disabled:opacity-40 disabled:cursor-not-allowed`}
-          >
+          <button disabled={!profile.subArea} onClick={() => setScreen('onboarding_context')}
+            className={`w-full py-2.5 text-sm ${btnPrimary} disabled:opacity-40 disabled:cursor-not-allowed`}>
             Continuar
           </button>
         </div>
@@ -4932,7 +4810,7 @@ export default function App() {
   }
 
   // ═══════════════════════════════════════════════════════════════════════════
-  // ── SCREEN: CONTEXT (cidade, estado, organização)
+  // ── SCREEN: CONTEXT
   // ═══════════════════════════════════════════════════════════════════════════
 
   if (screen === 'onboarding_context') return (
@@ -4940,38 +4818,29 @@ export default function App() {
       <div className={`w-full max-w-sm border rounded-2xl p-8 ${card}`}>
         <ProgressBar />
         <BackBtn to={SUB_AREAS[profile.profession ?? '']?.length > 0 ? 'onboarding_sub' : 'onboarding_prof'} />
-
         <div className="flex items-center gap-2 mb-1">
           <MapPin size={18} className="text-blue-400" />
           <h2 className="text-xl font-bold">Onde você atua?</h2>
         </div>
-        <p className={`text-sm mb-6 ${muted}`}>
-          Isso permite buscar legislação e protocolos específicos da sua região.
-        </p>
-
+        <p className={`text-sm mb-6 ${muted}`}>Permite buscar legislação e protocolos da sua região.</p>
         <div className="space-y-3 mb-6">
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={`block text-xs mb-1.5 ${muted}`}>Cidade</label>
-              <input type="text" placeholder="Ex: São Paulo"
-                value={profile.city}
+              <input type="text" placeholder="Ex: São Paulo" value={profile.city}
                 onChange={e => upd({ city: e.target.value })}
                 className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none ${inputCls}`}
               />
             </div>
             <div>
               <label className={`block text-xs mb-1.5 ${muted}`}>Estado</label>
-              <select
-                value={profile.state}
-                onChange={e => upd({ state: e.target.value })}
-                className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none ${selectCls}`}
-              >
+              <select value={profile.state} onChange={e => upd({ state: e.target.value })}
+                className={`w-full border rounded-xl px-3 py-2.5 text-sm focus:outline-none ${selectCls}`}>
                 <option value="">UF</option>
                 {STATES_BR.map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
           </div>
-
           {!profile.organization && (
             <div>
               <label className={`block text-xs mb-1.5 ${muted}`}>Empresa / Escola / Clínica <span className="opacity-50">(opcional)</span></label>
@@ -4986,18 +4855,12 @@ export default function App() {
             </div>
           )}
         </div>
-
-        <button
-          disabled={!profile.state}
-          onClick={() => setScreen('onboarding_auto_index')}
-          className={`w-full py-2.5 text-sm ${btnPrimary} disabled:opacity-40 disabled:cursor-not-allowed`}
-        >
+        <button disabled={!profile.state} onClick={() => setScreen('onboarding_auto_index')}
+          className={`w-full py-2.5 text-sm ${btnPrimary} disabled:opacity-40 disabled:cursor-not-allowed`}>
           Buscar conteúdo da minha área →
         </button>
-        <button
-          onClick={() => setScreen('onboarding_auto_index')}
-          className={`w-full text-center text-xs mt-3 transition ${muted} hover:text-slate-300`}
-        >
+        <button onClick={() => setScreen('onboarding_auto_index')}
+          className={`w-full text-center text-xs mt-3 transition ${muted} hover:text-slate-300`}>
           Pular por agora
         </button>
       </div>
@@ -5014,30 +4877,22 @@ export default function App() {
       <div className={`min-h-screen flex items-center justify-center ${bg} ${text} px-4 py-8`}>
         <div className={`w-full max-w-sm border rounded-2xl p-8 ${card}`}>
           <ProgressBar />
-
           <div className="flex items-center gap-2 mb-1">
             <Search size={18} className="text-blue-400" />
             <h2 className="text-xl font-bold">Buscando sua base</h2>
           </div>
-          <p className={`text-sm mb-8 ${muted}`}>
-            Indexando conteúdo público e atualizado da sua área de atuação.
-          </p>
-
+          <p className={`text-sm mb-8 ${muted}`}>Indexando conteúdo público e atualizado da sua área.</p>
           <div className="space-y-3 mb-8">
             {steps.map((step, i) => {
-              const done    = i < autoIndexStep;
+              const done = i < autoIndexStep;
               const current = i === autoIndexStep;
               return (
                 <div key={i} className={`flex items-center gap-3 transition-opacity ${i > autoIndexStep ? 'opacity-30' : 'opacity-100'}`}>
                   <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0
-                    ${done ? 'bg-emerald-500' : current ? 'bg-blue-600' : isDark ? 'bg-slate-800' : 'bg-slate-200'}`}
-                  >
-                    {done
-                      ? <CheckCircle2 size={13} className="text-white" />
-                      : current
-                        ? <Loader2 size={13} className="animate-spin text-white" />
-                        : <span className={`text-[10px] font-bold ${muted}`}>{i + 1}</span>
-                    }
+                    ${done ? 'bg-emerald-500' : current ? 'bg-blue-600' : isDark ? 'bg-slate-800' : 'bg-slate-200'}`}>
+                    {done ? <CheckCircle2 size={13} className="text-white" />
+                      : current ? <Loader2 size={13} className="animate-spin text-white" />
+                      : <span className={`text-[10px] font-bold ${muted}`}>{i + 1}</span>}
                   </div>
                   <span className={`text-sm ${current ? 'text-blue-400 font-medium' : done ? (isDark ? 'text-slate-300' : 'text-slate-700') : muted}`}>
                     {step}
@@ -5046,12 +4901,8 @@ export default function App() {
               );
             })}
           </div>
-
-          <button
-            disabled={!autoIndexDone}
-            onClick={() => setScreen('onboarding_upload')}
-            className={`w-full py-2.5 text-sm ${btnPrimary} disabled:opacity-40 disabled:cursor-not-allowed`}
-          >
+          <button disabled={!autoIndexDone} onClick={() => setScreen('onboarding_upload')}
+            className={`w-full py-2.5 text-sm ${btnPrimary} disabled:opacity-40 disabled:cursor-not-allowed`}>
             {autoIndexDone ? 'Ótimo! Continuar →' : 'Aguarde...'}
           </button>
         </div>
@@ -5068,19 +4919,13 @@ export default function App() {
       <div className={`w-full max-w-sm border rounded-2xl p-8 ${card}`}>
         <ProgressBar />
         <BackBtn to="onboarding_auto_index" />
-
         <h2 className="text-xl font-bold mb-1">Seus materiais pessoais</h2>
         <p className={`text-sm mb-5 ${muted}`}>
           Envie PDF, DOCX, PPTX, XLSX, CSV, TXT ou um <strong>.zip</strong> com vários arquivos.
-          A IA responde <em>apenas</em> com o que você enviar — seus documentos ficam privados.
         </p>
-
-        {/* Drop zone */}
-        <div
-          onClick={() => fileInputRef.current?.click()}
+        <div onClick={() => fileInputRef.current?.click()}
           className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition mb-4
-            ${isDark ? 'border-slate-700 hover:border-blue-500 hover:bg-blue-500/5' : 'border-slate-300 hover:border-blue-400 hover:bg-blue-50'}`}
-        >
+            ${isDark ? 'border-slate-700 hover:border-blue-500 hover:bg-blue-500/5' : 'border-slate-300 hover:border-blue-400 hover:bg-blue-50'}`}>
           <Upload size={22} className={`mx-auto mb-2 ${muted}`} />
           <p className="text-sm font-medium">Arraste ou clique para selecionar</p>
           <p className={`text-xs mt-1 ${muted}`}>Qualquer formato · .zip com múltiplos arquivos</p>
@@ -5089,8 +4934,6 @@ export default function App() {
             onChange={e => handleFiles(e.target.files)}
           />
         </div>
-
-        {/* File list */}
         {uploadedFiles.length > 0 && (
           <div className={`rounded-xl border p-3 mb-4 max-h-40 overflow-y-auto space-y-1.5 ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
             {uploadedFiles.map(f => (
@@ -5101,7 +4944,7 @@ export default function App() {
                 {f.status === 'pending' && <Loader2 size={11} className="animate-spin text-blue-400 shrink-0" />}
                 {f.status === 'done'    && <CheckCircle2 size={11} className="text-emerald-400 shrink-0" />}
                 {f.status === 'error'   && <AlertCircle size={11} className="text-red-400 shrink-0" />}
-                <button onClick={() => setUploadedFiles(prev => prev.filter(x => x.name !== f.name))}
+                <button onClick={() => setUploadedFiles(p => p.filter(x => x.name !== f.name))}
                   className={`${muted} hover:text-red-400 transition ml-1`}>
                   <Trash2 size={11} />
                 </button>
@@ -5109,24 +4952,17 @@ export default function App() {
             ))}
           </div>
         )}
-
         {isUploading && (
           <p className="text-xs text-blue-400 flex items-center gap-1.5 mb-3">
             <Loader2 size={11} className="animate-spin" /> Processando e indexando arquivos...
           </p>
         )}
-
-        <button
-          onClick={handleFinish}
-          disabled={isUploading}
-          className={`w-full py-2.5 text-sm ${btnPrimary} disabled:opacity-50`}
-        >
+        <button onClick={handleFinish} disabled={isUploading}
+          className={`w-full py-2.5 text-sm ${btnPrimary} disabled:opacity-50`}>
           {uploadedFiles.length > 0 ? `Entrar com ${uploadedFiles.length} arquivo(s)` : 'Entrar'}
         </button>
-        <button
-          onClick={handleFinish}
-          className={`w-full text-center text-xs mt-3 transition ${muted} hover:text-slate-300`}
-        >
+        <button onClick={handleFinish}
+          className={`w-full text-center text-xs mt-3 transition ${muted} hover:text-slate-300`}>
           Pular — enviar arquivos depois
         </button>
       </div>
@@ -5143,19 +4979,14 @@ export default function App() {
     Advogado: <Scale size={14} />, Médico: <Stethoscope size={14} />,
     Professor: <BookOpen size={14} />, Outro: <Sparkles size={14} />,
   };
-  const msgAssistant = isDark
-    ? 'bg-[#161d2e] border border-slate-800 text-slate-200'
-    : 'bg-white border border-slate-200 text-slate-700 shadow-sm';
 
   return (
     <div className={`flex h-screen w-full ${bg} ${text} overflow-hidden`}>
-
-      {/* Sidebar overlay */}
       {sidebarOpen && (
         <div className="fixed inset-0 z-40 bg-black/60 lg:hidden" onClick={() => setSidebarOpen(false)} />
       )}
 
-      {/* ── Sidebar ──────────────────────────────────────────────────────── */}
+      {/* Sidebar */}
       <aside className={`
         fixed inset-y-0 left-0 z-50 w-72 flex flex-col border-r transform transition-transform duration-300
         lg:relative lg:translate-x-0
@@ -5174,7 +5005,7 @@ export default function App() {
           {/* Profile card */}
           <div className={`rounded-xl border p-3.5 ${isDark ? 'border-slate-800 bg-slate-900/40' : 'border-slate-100 bg-slate-50'}`}>
             <p className={`text-[10px] font-bold uppercase tracking-widest mb-2.5 ${muted}`}>Perfil ativo</p>
-            <p className="text-sm font-semibold">{profile.preferredName || profile.fullName}</p>
+            <p className="text-sm font-semibold">{profile.preferred_name || profile.full_name}</p>
             {profile.organization && <p className={`text-xs mt-0.5 ${muted}`}>{profile.organization}</p>}
             <div className="flex items-center gap-1.5 mt-2">
               <span className="text-blue-400 shrink-0">{profIcon[profile.profession ?? 'Outro']}</span>
@@ -5186,6 +5017,19 @@ export default function App() {
                 <span className={`text-xs ${muted}`}>{[profile.city, profile.state].filter(Boolean).join(', ')}</span>
               </div>
             )}
+            {/* 2FA badge */}
+            <div className="flex items-center gap-1.5 mt-2">
+              <ShieldCheck size={11} className={profile.totp_enabled ? 'text-emerald-400' : muted} />
+              <span className={`text-[10px] ${profile.totp_enabled ? 'text-emerald-400' : muted}`}>
+                {profile.totp_enabled ? '2FA ativo' : '2FA desativado'}
+              </span>
+              {!profile.totp_enabled && (
+                <button onClick={initiate2FASetup}
+                  className="text-[10px] text-blue-400 hover:underline ml-auto">
+                  Ativar
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Files */}
@@ -5208,11 +5052,9 @@ export default function App() {
                 </div>
               )
             }
-            <button
-              onClick={() => fileInputRef2.current?.click()}
+            <button onClick={() => fileInputRef2.current?.click()}
               className={`mt-2 w-full flex items-center gap-1.5 text-xs px-3 py-2 rounded-lg border border-dashed transition
-                ${isDark ? 'border-slate-700 text-slate-500 hover:border-blue-500 hover:text-blue-400' : 'border-slate-300 text-slate-400 hover:border-blue-400 hover:text-blue-500'}`}
-            >
+                ${isDark ? 'border-slate-700 text-slate-500 hover:border-blue-500 hover:text-blue-400' : 'border-slate-300 text-slate-400 hover:border-blue-400 hover:text-blue-500'}`}>
               <Plus size={11} /> Adicionar arquivos
             </button>
             <input ref={fileInputRef2} type="file" className="hidden" multiple
@@ -5223,26 +5065,20 @@ export default function App() {
         </div>
 
         <div className={`p-4 border-t ${isDark ? 'border-slate-800' : 'border-slate-200'} flex flex-col gap-1`}>
-          <button
-            onClick={() => setIsDark(!isDark)}
-            className={`flex items-center gap-2 text-xs px-3 py-2 rounded-lg transition ${isDark ? 'hover:bg-slate-900 text-slate-400' : 'hover:bg-slate-100 text-slate-500'}`}
-          >
+          <button onClick={() => setIsDark(!isDark)}
+            className={`flex items-center gap-2 text-xs px-3 py-2 rounded-lg transition ${isDark ? 'hover:bg-slate-900 text-slate-400' : 'hover:bg-slate-100 text-slate-500'}`}>
             {isDark ? <Sun size={13} /> : <Moon size={13} />}
             {isDark ? 'Modo claro' : 'Modo escuro'}
           </button>
-          <button
-            onClick={() => { setScreen('login'); setProfile(emptyProfile()); setUploadedFiles([]); setMessages([]); }}
-            className={`flex items-center gap-2 text-xs px-3 py-2 rounded-lg transition text-red-400 ${isDark ? 'hover:bg-red-500/10' : 'hover:bg-red-50'}`}
-          >
+          <button onClick={handleLogout}
+            className={`flex items-center gap-2 text-xs px-3 py-2 rounded-lg transition text-red-400 ${isDark ? 'hover:bg-red-500/10' : 'hover:bg-red-50'}`}>
             <LogOut size={13} /> Sair
           </button>
         </div>
       </aside>
 
-      {/* ── Main ─────────────────────────────────────────────────────────── */}
+      {/* Main */}
       <main className="flex-1 flex flex-col min-w-0">
-
-        {/* Header */}
         <header className={`h-14 flex items-center justify-between px-4 border-b shrink-0 ${card}`}>
           <div className="flex items-center gap-3">
             <button className="lg:hidden" onClick={() => setSidebarOpen(true)}>
@@ -5259,10 +5095,8 @@ export default function App() {
               )}
             </div>
           </div>
-
           <label className={`flex items-center gap-2 text-xs px-3 py-1.5 rounded-lg border cursor-pointer transition
-            ${isUploading ? 'opacity-60 cursor-wait' : isDark ? 'border-slate-700 hover:border-blue-500 text-slate-300' : 'border-slate-200 hover:border-blue-400 text-slate-600'}`}
-          >
+            ${isUploading ? 'opacity-60 cursor-wait' : isDark ? 'border-slate-700 hover:border-blue-500 text-slate-300' : 'border-slate-200 hover:border-blue-400 text-slate-600'}`}>
             {isUploading ? <Loader2 size={13} className="animate-spin" /> : <Upload size={13} />}
             <span className="hidden sm:inline">{isUploading ? 'Processando...' : 'Adicionar arquivos'}</span>
             <input type="file" className="hidden" multiple
@@ -5272,7 +5106,6 @@ export default function App() {
           </label>
         </header>
 
-        {/* Messages */}
         <div className="flex-1 overflow-y-auto p-4 lg:p-6 space-y-4">
           {messages.map((msg, idx) => (
             <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -5284,14 +5117,11 @@ export default function App() {
               <div className={`max-w-[82%] lg:max-w-[68%] px-4 py-3 rounded-2xl text-sm leading-relaxed whitespace-pre-wrap
                 ${msg.role === 'user'
                   ? 'bg-blue-600 text-white rounded-tr-sm'
-                  : `${msgAssistant} rounded-tl-sm`
-                }`}
-              >
+                  : `${msgAssistant} rounded-tl-sm`}`}>
                 {msg.content}
               </div>
             </div>
           ))}
-
           {isSending && (
             <div className="flex justify-start">
               <div className="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center mr-2 shrink-0">
@@ -5299,11 +5129,9 @@ export default function App() {
               </div>
               <div className={`px-4 py-3 rounded-2xl rounded-tl-sm text-sm ${msgAssistant}`}>
                 <span className="flex gap-1 items-center">
-                  {[0, 150, 300].map(d => (
-                    <span key={d}
-                      className="w-1.5 h-1.5 rounded-full bg-current animate-bounce"
-                      style={{ animationDelay: `${d}ms` }}
-                    />
+                  {[0,150,300].map(d => (
+                    <span key={d} className="w-1.5 h-1.5 rounded-full bg-current animate-bounce"
+                      style={{ animationDelay: `${d}ms` }} />
                   ))}
                 </span>
               </div>
@@ -5312,24 +5140,18 @@ export default function App() {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Input bar */}
         <div className={`p-4 border-t ${isDark ? 'border-slate-800' : 'border-slate-200'}`}>
           <div className="max-w-3xl mx-auto">
             <div className={`flex gap-2 items-center border rounded-2xl px-4 py-2 transition focus-within:ring-2 focus-within:ring-blue-500 ${inputCls}`}>
-              <input
-                type="text"
-                value={input}
+              <input type="text" value={input}
                 onChange={e => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder={PROF_PLACEHOLDERS[profile.profession ?? 'Outro']}
                 disabled={isSending}
                 className="flex-1 bg-transparent py-1.5 focus:outline-none text-sm disabled:opacity-60"
               />
-              <button
-                onClick={handleSend}
-                disabled={!input.trim() || isSending}
-                className="p-1.5 bg-blue-600 hover:bg-blue-500 rounded-xl text-white transition active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
-              >
+              <button onClick={handleSend} disabled={!input.trim() || isSending}
+                className="p-1.5 bg-blue-600 hover:bg-blue-500 rounded-xl text-white transition active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed shrink-0">
                 <Send size={15} />
               </button>
             </div>
@@ -5339,78 +5161,1611 @@ export default function App() {
           </div>
         </div>
       </main>
-
-      {/* ── Upload drawer ─────────────────────────────────────────────────── */}
-      {uploadDrawerOpen && (
-        <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-4">
-          <div className={`w-full max-w-md rounded-2xl border p-6 ${card}`}>
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="font-bold">Adicionar arquivos</h3>
-              <button onClick={() => setUploadDrawerOpen(false)}><X size={18} /></button>
-            </div>
-            <div
-              onClick={() => fileInputRef.current?.click()}
-              className={`border-2 border-dashed rounded-xl p-8 text-center cursor-pointer transition mb-4
-                ${isDark ? 'border-slate-700 hover:border-blue-500 hover:bg-blue-500/5' : 'border-slate-300 hover:border-blue-400 hover:bg-blue-50'}`}
-            >
-              <Upload size={22} className={`mx-auto mb-2 ${muted}`} />
-              <p className="text-sm font-medium">Arraste ou clique</p>
-              <p className={`text-xs mt-1 ${muted}`}>PDF, DOCX, PPTX, XLSX, ZIP e mais</p>
-              <input ref={fileInputRef} type="file" className="hidden" multiple
-                accept=".pdf,.docx,.pptx,.xlsx,.txt,.zip,.rar,.csv,.md"
-                onChange={e => { handleFiles(e.target.files); setUploadDrawerOpen(false); }}
-              />
-            </div>
-            <button
-              onClick={() => setUploadDrawerOpen(false)}
-              className={`w-full py-2 rounded-xl text-sm font-medium ${btnPrimary}`}
-            >
-              Fechar
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
 
 ==================================================
-ARQUIVO: frontend\src\index.css
+ARQUIVO: backend/auth.py
 ==================================================
 
-@import "tailwindcss";
+"""
+Funções utilitárias de autenticação:
+- Hash e verificação de senha (bcrypt)
+- Validação de senha forte
+- Criação/decodificação de tokens JWT (access + refresh)
+- TOTP (2FA): geração de secret, QR code e verificação de código
+- Códigos de recuperação de 2FA
+"""
 
-body {
-  margin: 0;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+import datetime
+import os
+import re
+import secrets
+import hashlib
+import io
+import base64
+
+import pyotp
+import qrcode
+from jose import jwt, JWTError
+from passlib.context import CryptContext
+from dotenv import load_dotenv
+load_dotenv()  # Isso carrega as variáveis do arquivo .env
+
+# ──────────────────────────────────────────────────────────────────────────
+# Config
+# ──────────────────────────────────────────────────────────────────────────
+
+JWT_SECRET = os.getenv("JWT_SECRET")
+if not JWT_SECRET:
+    # Em produção, ISSO DEVE vir de variável de ambiente / secrets manager.
+    # Gerar com: python -c "import secrets; print(secrets.token_urlsafe(64))"
+    JWT_SECRET = "DEV-ONLY-CHANGE-ME-" + secrets.token_urlsafe(32)
+    print(
+        "[auth] AVISO: JWT_SECRET não definido. Usando chave temporária de "
+        "desenvolvimento. Defina a variável de ambiente JWT_SECRET em produção."
+    )
+
+ALGORITHM = "HS256"
+
+ACCESS_TOKEN_EXPIRE_MINUTES = 15          # access token de vida curta
+REFRESH_TOKEN_EXPIRE_DAYS = 30            # refresh token de vida longa
+
+TOTP_ISSUER = "ProMind"
+
+pwd_ctx = CryptContext(schemes=["bcrypt"], bcrypt__rounds=12)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Senhas
+# ──────────────────────────────────────────────────────────────────────────
+
+def hash_password(password: str) -> str:
+    return pwd_ctx.hash(password)
+
+
+def verify_password(password: str, password_hash: str) -> bool:
+    return pwd_ctx.verify(password, password_hash)
+
+
+# Política de senha forte. Ajuste conforme a política da sua organização,
+# mas NUNCA enfraqueça isso — toda validação de senha de cadastro DEVE
+# passar por aqui, no backend, independentemente do que o frontend valida.
+PASSWORD_MIN_LENGTH = 10
+
+_PASSWORD_RULES: list[tuple[str, "re.Pattern"]] = [
+    ("Pelo menos uma letra minúscula", re.compile(r"[a-z]")),
+    ("Pelo menos uma letra maiúscula", re.compile(r"[A-Z]")),
+    ("Pelo menos um número", re.compile(r"\d")),
+    ("Pelo menos um caractere especial (!@#$%^&*...)", re.compile(r"[^A-Za-z0-9]")),
+]
+
+# Lista mínima de senhas/sequências triviais. Em produção, considere usar
+# uma lista maior (ex: top 10k senhas vazadas) ou um serviço como
+# "Have I Been Pwned" (k-anonimato) para checar vazamentos.
+_COMMON_PASSWORDS = {
+    "password", "12345678", "123456789", "qwerty123", "senha123",
+    "password1", "abc12345", "admin123", "letmein123",
 }
 
-* {
-  transition: background-color 0.2s ease, border-color 0.2s ease;
-}
 
-.scrollbar-thin::-webkit-scrollbar {
-  width: 6px;
-}
-.scrollbar-thin::-webkit-scrollbar-thumb {
-  background: #334155;
-  border-radius: 10px;
-}
+def validate_password_strength(password: str) -> list[str]:
+    """
+    Retorna uma lista de problemas encontrados na senha.
+    Lista vazia = senha aceitável.
+    """
+    errors: list[str] = []
 
+    if len(password) < PASSWORD_MIN_LENGTH:
+        errors.append(f"A senha deve ter pelo menos {PASSWORD_MIN_LENGTH} caracteres.")
+
+    for message, pattern in _PASSWORD_RULES:
+        if not pattern.search(password):
+            errors.append(message)
+
+    if password.lower() in _COMMON_PASSWORDS:
+        errors.append("Essa senha é muito comum. Escolha uma senha mais difícil de adivinhar.")
+
+    # Bloqueia senhas com 4+ caracteres repetidos em sequência (ex: "aaaa", "1111")
+    if re.search(r"(.)\1{3,}", password):
+        errors.append("Evite repetir o mesmo caractere várias vezes em sequência.")
+
+    return errors
+
+
+def is_strong_password(password: str) -> bool:
+    return len(validate_password_strength(password)) == 0
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# JWT — Access & Refresh tokens
+# ──────────────────────────────────────────────────────────────────────────
+
+def _now() -> datetime.datetime:
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
+def create_access_token(user_id: str, extra_claims: dict | None = None) -> str:
+    payload = {
+        "sub": str(user_id),
+        "type": "access",
+        "iat": _now(),
+        "exp": _now() + datetime.timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES),
+    }
+    if extra_claims:
+        payload.update(extra_claims)
+    return jwt.encode(payload, JWT_SECRET, algorithm=ALGORITHM)
+
+
+def create_refresh_token(user_id: str) -> tuple[str, str, datetime.datetime]:
+    """
+    Cria um refresh token JWT e retorna (token, token_hash, expires_at).
+
+    O token_hash é o que deve ser persistido no banco (tabela RefreshToken),
+    NUNCA o token em si — assim, se o banco for comprometido, os tokens
+    não podem ser reutilizados diretamente.
+    """
+    expires_at = _now() + datetime.timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    jti = secrets.token_urlsafe(32)  # identificador único do token
+
+    payload = {
+        "sub": str(user_id),
+        "type": "refresh",
+        "jti": jti,
+        "iat": _now(),
+        "exp": expires_at,
+    }
+    token = jwt.encode(payload, JWT_SECRET, algorithm=ALGORITHM)
+    token_hash = hash_token(token)
+    return token, token_hash, expires_at
+
+
+def hash_token(token: str) -> str:
+    """Hash determinístico (SHA-256) usado para indexar tokens no banco."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def decode_token(token: str) -> dict:
+    """
+    Decodifica e valida um token JWT (access ou refresh).
+    Lança jose.JWTError se inválido/expirado — trate isso na camada de rota.
+    """
+    return jwt.decode(token, JWT_SECRET, algorithms=[ALGORITHM])
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# 2FA — TOTP (compatível com Google Authenticator, Authy, 1Password, etc.)
+# ──────────────────────────────────────────────────────────────────────────
+
+def generate_totp_secret() -> str:
+    """Gera um novo secret base32 para TOTP."""
+    return pyotp.random_base32()
+
+
+def get_totp_uri(secret: str, account_email: str) -> str:
+    """URI otpauth:// usado para gerar o QR code escaneável."""
+    return pyotp.totp.TOTP(secret).provisioning_uri(
+        name=account_email,
+        issuer_name=TOTP_ISSUER,
+    )
+
+
+def generate_qr_code_base64(uri: str) -> str:
+    """Gera um QR code PNG (base64) a partir da URI do TOTP."""
+    img = qrcode.make(uri)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+def verify_totp_code(secret: str, code: str) -> bool:
+    """
+    Verifica um código TOTP de 6 dígitos.
+    valid_window=1 permite tolerância de ±30s para diferenças de relógio
+    entre o dispositivo do usuário e o servidor.
+    """
+    code = (code or "").strip().replace(" ", "")
+    if not re.fullmatch(r"\d{6}", code):
+        return False
+    totp = pyotp.TOTP(secret)
+    return totp.verify(code, valid_window=1)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Códigos de recuperação de 2FA
+# ──────────────────────────────────────────────────────────────────────────
+
+def generate_recovery_codes(count: int = 8) -> list[str]:
+    """
+    Gera códigos de recuperação no formato XXXX-XXXX (legíveis, sem
+    caracteres ambíguos como 0/O e 1/I/l).
+    """
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    codes = []
+    for _ in range(count):
+        part1 = "".join(secrets.choice(alphabet) for _ in range(4))
+        part2 = "".join(secrets.choice(alphabet) for _ in range(4))
+        codes.append(f"{part1}-{part2}")
+    return codes
+
+
+def hash_recovery_code(code: str) -> str:
+    """
+    Hash de um código de recuperação para armazenamento.
+    Usamos SHA-256 (e não bcrypt) porque os códigos já têm alta entropia
+    e precisamos comparar contra uma lista — bcrypt seria caro demais
+    para N comparações. Normalizamos para maiúsculas antes do hash.
+    """
+    normalized = code.strip().upper().replace(" ", "")
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()
+
+
+def verify_recovery_code(code: str, hashed_codes: list[str]) -> bool:
+    target = hash_recovery_code(code)
+    return any(secrets.compare_digest(target, h) for h in hashed_codes)
 
 ==================================================
-ARQUIVO: frontend\src\main.tsx
+ARQUIVO: backend/main.py
 ==================================================
 
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import './index.css'
-import App from './App.tsx'
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+from typing import Optional
+import shutil
+import os
 
-createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <App />
-  </StrictMode>,
+from database import init_db
+from ingestao import processar_arquivo
+from consulta import responder_pergunta
+from auth_router import router as auth_router
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Cria as tabelas no banco ao iniciar o servidor."""
+    init_db()
+    yield
+
+
+app = FastAPI(title="ProMind API", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[os.getenv("FRONTEND_URL", "http://localhost:5173")],
+    allow_credentials=True,   # OBRIGATÓRIO para cookies httpOnly funcionarem
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
+# ── Rotas de autenticação ─────────────────────────────────────────────────────
+app.include_router(auth_router)
+
+
+# ─── Helpers ──────────────────────────────────────────────────────────────────
+
+def build_collection_name(
+    profession: str,
+    sub_area: str,
+    estado: Optional[str] = None,
+    materia: Optional[str] = None,
+) -> str:
+    base = f"{profession}_{sub_area}".lower().replace(" ", "_")
+    if profession.lower() == "advogado" and estado:
+        base = f"{base}_{estado.lower().replace(' ', '_')}"
+    if profession.lower() == "professor" and materia:
+        base = f"{base}_{materia.lower().replace(' ', '_')}"
+    return base
+
+
+# ─── Onboarding Complete ──────────────────────────────────────────────────────
+
+class OnboardingRequest(BaseModel):
+    profession: str
+    sub_area: Optional[str] = "geral"
+    state: Optional[str] = ""
+    collection_name: Optional[str] = None
+
+
+@app.post("/onboarding/complete")
+async def onboarding_complete(req: OnboardingRequest):
+    col = req.collection_name or build_collection_name(
+        req.profession, req.sub_area or "geral", req.state
+    )
+    try:
+        from auto_indexer import auto_indexar
+        import asyncio
+        asyncio.create_task(
+            auto_indexar(
+                profession=req.profession,
+                sub_area=req.sub_area or "geral",
+                state=req.state or "",
+                collection_name=col,
+            )
+        )
+    except Exception as e:
+        print(f"[onboarding] auto_indexer ignorado: {e}")
+
+    return {"status": "ok", "collection": col}
+
+
+# ─── Upload ───────────────────────────────────────────────────────────────────
+
+@app.post("/upload")
+async def upload_file(
+    file: UploadFile = File(...),
+    profession: str = Form("geral"),
+    sub_area: str = Form("geral"),
+    collection_name: Optional[str] = Form(None),
+    estado: Optional[str] = Form(None),
+    materia: Optional[str] = Form(None),
+    nivel: Optional[str] = Form(None),
+):
+    col = collection_name or build_collection_name(profession, sub_area, estado, materia)
+
+    data_dir = os.path.join("data", col)
+    os.makedirs(data_dir, exist_ok=True)
+    file_path = os.path.join(data_dir, file.filename)
+
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    try:
+        processar_arquivo(
+            caminho_arquivo=file_path,
+            collection_name=col,
+            metadata_extra={
+                "profession": profession,
+                "sub_area": sub_area,
+                "estado": estado or "",
+                "materia": materia or "",
+                "nivel": nivel or "",
+            },
+        )
+        return {"status": "success", "filename": file.filename, "collection": col}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── Chat ─────────────────────────────────────────────────────────────────────
+
+class ChatRequest(BaseModel):
+    question: str
+    collection_name: str
+    profession: Optional[str] = None
+    sub_area: Optional[str] = None
+
+
+@app.post("/chat")
+async def chat(req: ChatRequest):
+    if not req.question.strip():
+        raise HTTPException(status_code=400, detail="Pergunta vazia.")
+    try:
+        answer = responder_pergunta(
+            question=req.question,
+            collection_name=req.collection_name,
+            profession=req.profession,
+            sub_area=req.sub_area,
+        )
+        return {"answer": answer, "collection": req.collection_name}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─── Health ───────────────────────────────────────────────────────────────────
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+
+==================================================
+ARQUIVO: backend/ingestao.py
+==================================================
+
+import os
+import random
+import zipfile
+import tempfile
+from typing import Optional
+
+from langchain_community.document_loaders import (
+    PyMuPDFLoader,
+    Docx2txtLoader,
+    UnstructuredPowerPointLoader,
+)
+from langchain_core.documents import Document
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+from qdrant_client import QdrantClient
+from qdrant_client.models import Distance, VectorParams, PointStruct
+import pandas as pd
+import ollama
+
+# ─── Config ───────────────────────────────────────────────────────────────────
+
+QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
+QDRANT_PORT = int(os.getenv("QDRANT_PORT", 6333))
+EMBED_MODEL = "nomic-embed-text"
+VECTOR_SIZE = 768
+CHUNK_SIZE = 1000
+CHUNK_OVERLAP = 100
+
+client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
+
+# ─── Embedding ────────────────────────────────────────────────────────────────
+
+def get_embedding(text: str) -> list[float]:
+    """Gera embedding via Ollama (nomic-embed-text, 768 dims)."""
+    response = ollama.embeddings(model=EMBED_MODEL, prompt=text)
+    return response["embedding"]
+
+
+# ─── Loaders por tipo de arquivo ─────────────────────────────────────────────
+
+def _load_pdf(path: str) -> list[Document]:
+    return PyMuPDFLoader(path).load()
+
+
+def _load_docx(path: str) -> list[Document]:
+    return Docx2txtLoader(path).load()
+
+
+def _load_pptx(path: str) -> list[Document]:
+    return UnstructuredPowerPointLoader(path).load()
+
+
+def _load_xlsx(path: str) -> list[Document]:
+    """Lê todas as abas e converte para texto."""
+    docs = []
+    xls = pd.ExcelFile(path)
+    for sheet in xls.sheet_names:
+        df = pd.read_excel(xls, sheet_name=sheet).fillna("")
+        text = f"[Planilha: {sheet}]\n{df.to_string(index=False)}"
+        docs.append(Document(page_content=text, metadata={"sheet": sheet}))
+    return docs
+
+
+def _load_txt(path: str) -> list[Document]:
+    with open(path, "r", encoding="utf-8", errors="ignore") as f:
+        return [Document(page_content=f.read())]
+
+
+def _load_file(path: str) -> list[Document]:
+    """Roteador: escolhe o loader certo pela extensão."""
+    ext = os.path.splitext(path)[1].lower()
+    loaders = {
+        ".pdf": _load_pdf,
+        ".docx": _load_docx,
+        ".doc": _load_docx,
+        ".pptx": _load_pptx,
+        ".ppt": _load_pptx,
+        ".xlsx": _load_xlsx,
+        ".xls": _load_xlsx,
+        ".csv": lambda p: [Document(page_content=pd.read_csv(p).to_string())],
+        ".txt": _load_txt,
+        ".md": _load_txt,
+    }
+    loader_fn = loaders.get(ext)
+    if loader_fn is None:
+        print(f"[ingestao] Extensão não suportada: {ext} — ignorando {path}")
+        return []
+    return loader_fn(path)
+
+
+# ─── ZIP handler ──────────────────────────────────────────────────────────────
+
+def _extract_zip(zip_path: str, dest_dir: str) -> list[str]:
+    """Extrai ZIP/RAR e retorna lista de caminhos de arquivos."""
+    extracted = []
+    with zipfile.ZipFile(zip_path, "r") as z:
+        z.extractall(dest_dir)
+        for name in z.namelist():
+            full = os.path.join(dest_dir, name)
+            if os.path.isfile(full):
+                extracted.append(full)
+    return extracted
+
+
+# ─── Core: processar_arquivo ─────────────────────────────────────────────────
+
+def processar_arquivo(
+    caminho_arquivo: str,
+    collection_name: str,
+    metadata_extra: Optional[dict] = None,
+) -> None:
+    """
+    Lê, divide em chunks, gera embeddings e salva no Qdrant.
+    Suporta: PDF, DOCX, PPTX, XLSX, CSV, TXT, MD, ZIP.
+    O isolamento de contexto é garantido pelo collection_name exclusivo por
+    profissão + subárea + localidade/matéria.
+    """
+    print(f"[ingestao] Iniciando: {caminho_arquivo} → coleção '{collection_name}'")
+
+    # Garante que a coleção existe com as dimensões certas
+    if not client.collection_exists(collection_name):
+        client.create_collection(
+            collection_name=collection_name,
+            vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
+        )
+
+    ext = os.path.splitext(caminho_arquivo)[1].lower()
+
+    # Se for ZIP, extrai e processa cada arquivo individualmente
+    if ext in (".zip", ".rar"):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            files = _extract_zip(caminho_arquivo, tmpdir)
+            for f in files:
+                try:
+                    processar_arquivo(f, collection_name, metadata_extra)
+                except Exception as e:
+                    print(f"[ingestao] Erro ao processar {f}: {e}")
+        return
+
+    # Carrega o documento
+    docs = _load_file(caminho_arquivo)
+    if not docs:
+        print(f"[ingestao] Nenhum conteúdo extraído de {caminho_arquivo}")
+        return
+
+    # Divide em chunks
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=CHUNK_SIZE,
+        chunk_overlap=CHUNK_OVERLAP,
+        separators=["\n\n", "\n", ". ", " ", ""],
+    )
+    chunks = splitter.split_documents(docs)
+    print(f"[ingestao] {len(chunks)} chunks gerados")
+
+    # Gera embeddings e monta pontos Qdrant
+    points = []
+    filename = os.path.basename(caminho_arquivo)
+    for chunk in chunks:
+        try:
+            vector = get_embedding(chunk.page_content)
+        except Exception as e:
+            print(f"[ingestao] Erro ao gerar embedding: {e}")
+            continue
+
+        payload = {
+            "text": chunk.page_content,
+            "source": filename,
+            "page": chunk.metadata.get("page", 0),
+        }
+        if metadata_extra:
+            payload.update(metadata_extra)
+
+        points.append(
+            PointStruct(
+                id=random.randint(0, 2**31),
+                vector=vector,
+                payload=payload,
+            )
+        )
+
+    if points:
+        # Upsert em lotes de 100 para não sobrecarregar
+        batch_size = 100
+        for i in range(0, len(points), batch_size):
+            client.upsert(
+                collection_name=collection_name,
+                points=points[i : i + batch_size],
+            )
+        print(f"[ingestao] ✅ {len(points)} vetores salvos em '{collection_name}'")
+    else:
+        print(f"[ingestao] ⚠️  Nenhum vetor gerado para {caminho_arquivo}")
+
+
+==================================================
+ARQUIVO: backend/database.py
+==================================================
+
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, Session as SQLASession
+import os
+
+from models import Base
+
+DATABASE_URL = os.getenv(
+    "DATABASE_URL",
+    "postgresql://admin:password123@localhost:5432/knowledge_engine",
+)
+
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+
+def init_db() -> None:
+    """
+    Cria as tabelas que ainda não existem.
+
+    NOTA: Em um ambiente de produção real, use uma ferramenta de migração
+    (ex: Alembic) em vez de create_all — isso permite alterar colunas em
+    tabelas que já têm dados sem perder informação. create_all só CRIA
+    tabelas novas, nunca altera as existentes.
+    """
+    Base.metadata.create_all(bind=engine)
+
+
+def get_db():
+    """Dependency do FastAPI: fornece uma sessão de banco por requisição."""
+    db: SQLASession = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+==================================================
+ARQUIVO: backend/consulta.py
+==================================================
+
+import os
+from typing import Optional
+
+from qdrant_client import QdrantClient
+import ollama
+
+# ─── Config ───────────────────────────────────────────────────────────────────
+
+QDRANT_HOST = os.getenv("QDRANT_HOST", "localhost")
+QDRANT_PORT = int(os.getenv("QDRANT_PORT", 6333))
+EMBED_MODEL = "nomic-embed-text"
+CHAT_MODEL = os.getenv("CHAT_MODEL", "llama3.2:3b")
+TOP_K = 5  # quantos chunks recuperar por pergunta
+
+client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
+
+# ─── System prompts por profissão ─────────────────────────────────────────────
+
+SYSTEM_PROMPTS = {
+    "advogado": (
+        "Você é um assistente jurídico especializado. "
+        "Responda APENAS com base nos trechos de documentos fornecidos abaixo. "
+        "Cite a fonte (nome do arquivo e página) quando possível. "
+        "Se a informação não estiver nos documentos, diga claramente que não encontrou. "
+        "Use linguagem técnica adequada ao Direito, mas seja claro e objetivo."
+    ),
+    "médico": (
+        "Você é um assistente médico especializado. "
+        "Responda APENAS com base nos trechos de documentos fornecidos abaixo. "
+        "Cite a fonte (nome do arquivo) quando possível. "
+        "Se a informação não estiver nos documentos, diga claramente que não encontrou. "
+        "Use terminologia médica precisa. Nunca forneça diagnósticos ou prescrições — "
+        "apenas analise e resuma as informações contidas nos documentos."
+    ),
+    "professor": (
+        "Você é um assistente pedagógico especializado. "
+        "Responda APENAS com base nos trechos de documentos fornecidos abaixo. "
+        "Cite a fonte (nome do arquivo) quando possível. "
+        "Se a informação não estiver nos documentos, diga claramente que não encontrou. "
+        "Adapte a linguagem ao contexto educacional, com foco em clareza didática."
+    ),
+    "geral": (
+        "Você é um assistente especializado em análise de documentos. "
+        "Responda APENAS com base nos trechos de documentos fornecidos abaixo. "
+        "Cite a fonte (nome do arquivo) quando possível. "
+        "Se a informação não estiver nos documentos, diga claramente que não encontrou."
+    ),
+}
+
+
+# ─── Helpers ──────────────────────────────────────────────────────────────────
+
+def get_embedding(text: str) -> list[float]:
+    response = ollama.embeddings(model=EMBED_MODEL, prompt=text)
+    return response["embedding"]
+
+
+def buscar_chunks(question: str, collection_name: str, top_k: int = TOP_K) -> list[dict]:
+    """Busca os chunks mais relevantes no Qdrant para a pergunta."""
+    if not client.collection_exists(collection_name):
+        return []
+
+    query_vector = get_embedding(question)
+    results = client.search(
+        collection_name=collection_name,
+        query_vector=query_vector,
+        limit=top_k,
+        with_payload=True,
+    )
+
+    chunks = []
+    for hit in results:
+        payload = hit.payload or {}
+        chunks.append({
+            "text": payload.get("text", ""),
+            "source": payload.get("source", "desconhecido"),
+            "page": payload.get("page", ""),
+            "score": round(hit.score, 3),
+        })
+    return chunks
+
+
+def montar_contexto(chunks: list[dict]) -> str:
+    """Formata os chunks recuperados em um bloco de contexto para o LLM."""
+    if not chunks:
+        return "Nenhum documento relevante encontrado na base de conhecimento."
+
+    partes = []
+    for i, c in enumerate(chunks, 1):
+        source_info = c["source"]
+        if c["page"]:
+            source_info += f", página {c['page']}"
+        partes.append(f"[Trecho {i} — Fonte: {source_info}]\n{c['text']}")
+
+    return "\n\n---\n\n".join(partes)
+
+
+# ─── Main: responder_pergunta ─────────────────────────────────────────────────
+
+def responder_pergunta(
+    question: str,
+    collection_name: str,
+    profession: Optional[str] = None,
+    sub_area: Optional[str] = None,
+) -> str:
+    """
+    Pipeline RAG completo:
+    1. Busca os chunks mais relevantes na coleção do usuário.
+    2. Monta o prompt com contexto + pergunta.
+    3. Envia ao modelo local via Ollama.
+    4. Retorna a resposta gerada.
+    """
+    # Seleciona o system prompt pela profissão
+    prof_key = (profession or "geral").lower()
+    system_prompt = SYSTEM_PROMPTS.get(prof_key, SYSTEM_PROMPTS["geral"])
+    if sub_area:
+        system_prompt += f"\n\nEspecialidade ativa: {sub_area}."
+
+    # Recupera contexto
+    chunks = buscar_chunks(question, collection_name)
+    contexto = montar_contexto(chunks)
+
+    # Prompt final
+    user_message = (
+        f"Documentos disponíveis:\n\n{contexto}\n\n"
+        f"---\n\n"
+        f"Pergunta: {question}\n\n"
+        f"Responda em português, de forma clara e direta, baseando-se estritamente "
+        f"nos documentos acima."
+    )
+
+    # Chamada ao modelo local
+    response = ollama.chat(
+        model=CHAT_MODEL,
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_message},
+        ],
+    )
+
+    return response["message"]["content"]
+
+
+==================================================
+ARQUIVO: backend/auto_indexer.py
+==================================================
+
+import httpx
+import trafilatura
+from ingestao import processar_arquivo
+import tempfile, os
+
+# Mapa de fontes por profissão/subárea
+SOURCES = {
+    ("Advogado", "civel"): [
+        "https://www.planalto.gov.br/ccivil_03/leis/l10406compilada.htm",
+        "https://www.planalto.gov.br/ccivil_03/_ato2015-2018/2015/lei/l13105.htm",
+    ],
+    ("Advogado", "trab"): [
+        "https://www.planalto.gov.br/ccivil_03/decreto-lei/del5452.htm",
+    ],
+    ("Médico", "clinica"): [
+        "https://bvsms.saude.gov.br/bvs/publicacoes/",
+    ],
+    ("Professor", "pub"): [
+        "http://basenacionalcomum.mec.gov.br/",
+    ],
+}
+
+async def auto_indexar(
+    profession: str,
+    sub_area: str,
+    state: str,           # ← parâmetro que faltava
+    collection_name: str,
+):
+    """
+    Busca fontes públicas relevantes e as indexa na coleção do usuário.
+    Chamado ao finalizar o onboarding.
+    """
+    key = (profession, sub_area)
+    urls = SOURCES.get(key, [])
+
+    for url in urls:
+        try:
+            async with httpx.AsyncClient(timeout=30) as client:
+                resp = await client.get(url, follow_redirects=True)
+
+            texto = trafilatura.extract(resp.text, include_links=False, include_tables=True)
+            if not texto or len(texto) < 200:
+                continue
+
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".txt", delete=False, encoding="utf-8"
+            ) as f:
+                f.write(texto)
+                tmp_path = f.name
+
+            processar_arquivo(
+                caminho_arquivo=tmp_path,
+                collection_name=collection_name,
+                metadata_extra={
+                    "source_type": "auto_index",
+                    "source_url": url,
+                    "profession": profession,
+                    "sub_area": sub_area,
+                    "state": state,
+                },
+            )
+            os.unlink(tmp_path)
+
+        except Exception as e:
+            print(f"[auto_indexer] Erro em {url}: {e}")
+
+==================================================
+ARQUIVO: backend/models.py
+==================================================
+
+from sqlalchemy import Column, String, DateTime, ForeignKey, Text, JSON, Integer, Boolean
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import declarative_base
+import uuid, datetime
+
+Base = declarative_base()
+
+
+def utcnow():
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id             = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    email          = Column(String, unique=True, nullable=False, index=True)
+
+    # Senha. Nula quando o usuário só usa login social (Google).
+    password_hash  = Column(String, nullable=True)
+
+    # Dados de perfil
+    full_name      = Column(String)
+    preferred_name = Column(String)
+    organization   = Column(String)
+    city           = Column(String)
+    state          = Column(String)
+    profession     = Column(String)      # Advogado | Médico | Professor | Outro
+    sub_area_id    = Column(String)
+    custom_desc    = Column(Text)
+
+    # ── Autenticação social ─────────────────────────────────────────────
+    google_sub     = Column(String, unique=True, nullable=True, index=True)
+    avatar_url     = Column(String, nullable=True)
+
+    # ── Verificação de e-mail ───────────────────────────────────────────
+    email_verified = Column(Boolean, default=False, nullable=False)
+
+    # ── Two-Factor Authentication (TOTP) ────────────────────────────────
+    totp_secret      = Column(String, nullable=True)   # secret base32, só existe após setup
+    totp_enabled     = Column(Boolean, default=False, nullable=False)
+    totp_recovery_codes = Column(JSON, default=list)    # hashes dos códigos de recuperação
+
+    # ── Segurança / auditoria ───────────────────────────────────────────
+    failed_login_attempts = Column(Integer, default=0, nullable=False)
+    locked_until           = Column(DateTime, nullable=True)
+    last_login_at          = Column(DateTime, nullable=True)
+
+    # ── Onboarding ───────────────────────────────────────────────────────
+    onboarding_completed = Column(Boolean, default=False, nullable=False)
+
+    created_at     = Column(DateTime, default=utcnow)
+    updated_at     = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class RefreshToken(Base):
+    """
+    Permite revogar sessões individualmente (logout real) e fazer rotação
+    de refresh tokens. Cada linha representa uma sessão ativa/expirada.
+    """
+    __tablename__ = "refresh_tokens"
+
+    id          = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id     = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False, index=True)
+    token_hash  = Column(String, nullable=False, unique=True, index=True)
+    user_agent  = Column(String, nullable=True)
+    ip_address  = Column(String, nullable=True)
+    revoked     = Column(Boolean, default=False, nullable=False)
+    expires_at  = Column(DateTime, nullable=False)
+    created_at  = Column(DateTime, default=utcnow)
+
+
+class Collection(Base):
+    __tablename__ = "collections"
+    id             = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id        = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    name           = Column(String, nullable=False)   # chave no Qdrant
+    profession     = Column(String)
+    sub_area       = Column(String)
+    state          = Column(String)
+    meta           = Column(JSON, default={})
+    created_at     = Column(DateTime, default=utcnow)
+
+
+class Document(Base):
+    __tablename__ = "documents"
+    id             = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    collection_id  = Column(UUID(as_uuid=True), ForeignKey("collections.id"))
+    filename       = Column(String)
+    source_type    = Column(String)   # "upload" | "auto_index" | "scrape"
+    source_url     = Column(String)
+    chunks_count   = Column(Integer, default=0)
+    indexed_at     = Column(DateTime, default=utcnow)
+
+==================================================
+ARQUIVO: backend/auth_router.py
+==================================================
+
+"""
+Rotas de autenticação.
+
+Estratégia de sessão: cookies httpOnly.
+  - access_token  : vida curta (15 min), enviado em todo request, valida via dependency.
+  - refresh_token : vida longa (30 dias), usado só em /auth/refresh para renovar
+                    o access_token. Hash armazenado na tabela refresh_tokens,
+                    permitindo revogação (logout) e detecção de reuso.
+
+Fluxo de 2FA:
+  1. Usuário com 2FA OFF faz login normal -> recebe cookies, pronto.
+  2. Usuário com 2FA ON faz login -> backend NÃO emite cookies ainda;
+     retorna {"requires_2fa": true, "challenge_token": "..."}.
+  3. Frontend pede o código de 6 dígitos e chama /auth/2fa/login com o
+     challenge_token + código. Se válido, emite os cookies normalmente.
+
+Fluxo Google OAuth (Authorization Code, server-side):
+  1. Frontend chama GET /auth/google/login -> backend redireciona para o Google.
+  2. Google redireciona para GET /auth/google/callback com ?code=...
+  3. Backend troca o code por tokens, busca o perfil do usuário no Google,
+     cria/atualiza o User local (vinculando por google_sub ou e-mail) e
+     emite os cookies de sessão, redirecionando de volta ao frontend.
+"""
+
+import datetime
+import os
+import secrets
+
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
+from fastapi.responses import RedirectResponse
+from pydantic import BaseModel, EmailStr, Field
+from sqlalchemy.orm import Session
+from authlib.integrations.starlette_client import OAuth, OAuthError
+from jose import JWTError
+
+import auth
+from database import get_db
+from models import RefreshToken, User
+
+
+router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Config de cookies
+# ──────────────────────────────────────────────────────────────────────────
+
+# Em produção (HTTPS): COOKIE_SECURE=true e ajuste COOKIE_SAMESITE se o
+# frontend estiver em domínio diferente do backend (precisa de "none" + secure).
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "false").lower() == "true"
+COOKIE_SAMESITE = os.getenv("COOKIE_SAMESITE", "lax")  # "lax" | "strict" | "none"
+COOKIE_DOMAIN = os.getenv("COOKIE_DOMAIN") or None  # None = host atual
+
+ACCESS_COOKIE_NAME = "access_token"
+REFRESH_COOKIE_NAME = "refresh_token"
+
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
+
+
+def _set_auth_cookies(response: Response, access_token: str, refresh_token: str) -> None:
+    response.set_cookie(
+        key=ACCESS_COOKIE_NAME,
+        value=access_token,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
+        domain=COOKIE_DOMAIN,
+        max_age=auth.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        path="/",
+    )
+    response.set_cookie(
+        key=REFRESH_COOKIE_NAME,
+        value=refresh_token,
+        httponly=True,
+        secure=COOKIE_SECURE,
+        samesite=COOKIE_SAMESITE,
+        domain=COOKIE_DOMAIN,
+        max_age=auth.REFRESH_TOKEN_EXPIRE_DAYS * 24 * 60 * 60,
+        # Restringe o refresh token a /auth/* — ele só é necessário no refresh/logout.
+        path="/auth",
+    )
+
+
+def _clear_auth_cookies(response: Response) -> None:
+    response.delete_cookie(ACCESS_COOKIE_NAME, path="/", domain=COOKIE_DOMAIN)
+    response.delete_cookie(REFRESH_COOKIE_NAME, path="/auth", domain=COOKIE_DOMAIN)
+
+
+def _issue_session(db: Session, user: User, request: Request, response: Response) -> None:
+    """Cria access+refresh tokens, persiste o refresh e seta os cookies."""
+    access_token = auth.create_access_token(str(user.id))
+    refresh_token, refresh_hash, expires_at = auth.create_refresh_token(str(user.id))
+
+    db.add(RefreshToken(
+        user_id=user.id,
+        token_hash=refresh_hash,
+        user_agent=request.headers.get("user-agent", "")[:255],
+        ip_address=request.client.host if request.client else None,
+        expires_at=expires_at,
+    ))
+    user.last_login_at = datetime.datetime.now(datetime.timezone.utc)
+    user.failed_login_attempts = 0
+    db.commit()
+
+    _set_auth_cookies(response, access_token, refresh_token)
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Dependency: usuário autenticado a partir do cookie de access token
+# ──────────────────────────────────────────────────────────────────────────
+
+def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
+    token = request.cookies.get(ACCESS_COOKIE_NAME)
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Não autenticado.")
+
+    try:
+        payload = auth.decode_token(token)
+    except JWTError:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sessão inválida ou expirada.")
+
+    if payload.get("type") != "access":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido.")
+
+    user = db.get(User, payload["sub"])
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuário não encontrado.")
+
+    return user
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Schemas
+# ──────────────────────────────────────────────────────────────────────────
+
+class RegisterRequest(BaseModel):
+    full_name: str = Field(min_length=1, max_length=255)
+    email: EmailStr
+    password: str
+
+
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class TwoFactorLoginRequest(BaseModel):
+    challenge_token: str
+    code: str
+
+
+class TwoFactorVerifyRequest(BaseModel):
+    code: str
+
+
+class TwoFactorRecoveryLoginRequest(BaseModel):
+    challenge_token: str
+    recovery_code: str
+
+
+class PasswordCheckRequest(BaseModel):
+    password: str
+
+
+class UserOut(BaseModel):
+    id: str
+    email: str
+    full_name: str | None
+    preferred_name: str | None
+    avatar_url: str | None
+    totp_enabled: bool
+    email_verified: bool
+    onboarding_completed: bool
+
+    class Config:
+        from_attributes = True
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Registro
+# ──────────────────────────────────────────────────────────────────────────
+
+@router.post("/register", response_model=UserOut, status_code=status.HTTP_201_CREATED)
+def register(payload: RegisterRequest, request: Request, response: Response, db: Session = Depends(get_db)):
+    email = payload.email.lower().strip()
+
+    if db.query(User).filter(User.email == email).first():
+        # Mensagem genérica de propósito: não confirmamos para um atacante
+        # se um e-mail já está cadastrado (evita enumeração de contas).
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Não foi possível concluir o cadastro com os dados informados.",
+        )
+
+    password_errors = auth.validate_password_strength(payload.password)
+    if password_errors:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"message": "Senha não atende aos requisitos mínimos.", "errors": password_errors},
+        )
+
+    user = User(
+        email=email,
+        password_hash=auth.hash_password(payload.password),
+        full_name=payload.full_name.strip(),
+        preferred_name=payload.full_name.strip().split(" ")[0],
+    )
+    db.add(user)
+    db.commit()
+    db.refresh(user)
+
+    _issue_session(db, user, request, response)
+    return user
+
+
+@router.post("/check-password")
+def check_password_strength(payload: PasswordCheckRequest):
+    """
+    Endpoint auxiliar para o frontend mostrar feedback em tempo real
+    (a validação AUTORITATIVA continua sendo a do /auth/register).
+    """
+    errors = auth.validate_password_strength(payload.password)
+    return {"valid": len(errors) == 0, "errors": errors}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Login (com suporte a 2FA)
+# ──────────────────────────────────────────────────────────────────────────
+
+# Challenge tokens de 2FA: armazenados em memória, com expiração curta.
+# Em produção com múltiplas instâncias do backend, troque por Redis.
+_TWOFA_CHALLENGES: dict[str, dict] = {}
+TWOFA_CHALLENGE_TTL_SECONDS = 5 * 60
+
+MAX_FAILED_LOGIN_ATTEMPTS = 5
+LOCKOUT_DURATION_MINUTES = 15
+
+
+def _create_2fa_challenge(user_id: str) -> str:
+    token = secrets.token_urlsafe(32)
+    _TWOFA_CHALLENGES[token] = {
+        "user_id": user_id,
+        "expires_at": datetime.datetime.now(datetime.timezone.utc)
+        + datetime.timedelta(seconds=TWOFA_CHALLENGE_TTL_SECONDS),
+    }
+    return token
+
+
+def _consume_2fa_challenge(token: str) -> str | None:
+    data = _TWOFA_CHALLENGES.pop(token, None)
+    if not data:
+        return None
+    if data["expires_at"] < datetime.datetime.now(datetime.timezone.utc):
+        return None
+    return data["user_id"]
+
+
+@router.post("/login")
+def login(payload: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)):
+    email = payload.email.lower().strip()
+    user = db.query(User).filter(User.email == email).first()
+
+    generic_error = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="E-mail ou senha incorretos.",
+    )
+
+    if user is None or user.password_hash is None:
+        # password_hash is None => conta criada via Google, sem senha local.
+        raise generic_error
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    if user.locked_until and user.locked_until > now:
+        minutes_left = max(1, int((user.locked_until - now).total_seconds() // 60))
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Conta temporariamente bloqueada por excesso de tentativas. "
+                   f"Tente novamente em {minutes_left} minuto(s).",
+        )
+
+    if not auth.verify_password(payload.password, user.password_hash):
+        user.failed_login_attempts += 1
+        if user.failed_login_attempts >= MAX_FAILED_LOGIN_ATTEMPTS:
+            user.locked_until = now + datetime.timedelta(minutes=LOCKOUT_DURATION_MINUTES)
+            user.failed_login_attempts = 0
+        db.commit()
+        raise generic_error
+
+    # Senha correta. Se 2FA estiver ativo, não emite sessão ainda.
+    if user.totp_enabled:
+        challenge_token = _create_2fa_challenge(str(user.id))
+        return {"requires_2fa": True, "challenge_token": challenge_token}
+
+    _issue_session(db, user, request, response)
+    return {"requires_2fa": False, "user": UserOut.model_validate(user)}
+
+
+@router.post("/2fa/login")
+def login_with_2fa(
+    payload: TwoFactorLoginRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    user_id = _consume_2fa_challenge(payload.challenge_token)
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Desafio de verificação inválido ou expirado. Faça login novamente.",
+        )
+
+    user = db.get(User, user_id)
+    if user is None or not user.totp_enabled or not user.totp_secret:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="2FA não configurado para este usuário.")
+
+    if not auth.verify_totp_code(user.totp_secret, payload.code):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Código de verificação inválido.")
+
+    _issue_session(db, user, request, response)
+    return {"user": UserOut.model_validate(user)}
+
+
+@router.post("/2fa/login/recovery")
+def login_with_recovery_code(
+    payload: TwoFactorRecoveryLoginRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+):
+    user_id = _consume_2fa_challenge(payload.challenge_token)
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Desafio de verificação inválido ou expirado. Faça login novamente.",
+        )
+
+    user = db.get(User, user_id)
+    if user is None or not user.totp_enabled:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="2FA não configurado para este usuário.")
+
+    codes: list[str] = user.totp_recovery_codes or []
+    target_hash = auth.hash_recovery_code(payload.recovery_code)
+    remaining = [c for c in codes if c != target_hash]
+
+    if len(remaining) == len(codes):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Código de recuperação inválido.")
+
+    # Código de recuperação é de uso único: remove da lista.
+    user.totp_recovery_codes = remaining
+    db.commit()
+
+    _issue_session(db, user, request, response)
+    return {
+        "user": UserOut.model_validate(user),
+        "recovery_codes_remaining": len(remaining),
+    }
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Sessão atual / refresh / logout
+# ──────────────────────────────────────────────────────────────────────────
+
+@router.get("/me", response_model=UserOut)
+def me(current_user: User = Depends(get_current_user)):
+    return current_user
+
+
+@router.post("/refresh")
+def refresh(request: Request, response: Response, db: Session = Depends(get_db)):
+    token = request.cookies.get(REFRESH_COOKIE_NAME)
+    if not token:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sessão expirada. Faça login novamente.")
+
+    try:
+        payload = auth.decode_token(token)
+    except JWTError:
+        _clear_auth_cookies(response)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sessão expirada. Faça login novamente.")
+
+    if payload.get("type") != "refresh":
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token inválido.")
+
+    token_hash = auth.hash_token(token)
+    stored = db.query(RefreshToken).filter(RefreshToken.token_hash == token_hash).first()
+
+    if stored is None or stored.revoked:
+        # Token desconhecido ou já usado/revogado: pode ser reuso de token
+        # roubado. Por segurança, revoga TODAS as sessões deste usuário.
+        _clear_auth_cookies(response)
+        if stored is not None:
+            db.query(RefreshToken).filter(RefreshToken.user_id == stored.user_id).update({"revoked": True})
+            db.commit()
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sessão inválida. Faça login novamente.")
+
+    now = datetime.datetime.now(datetime.timezone.utc)
+    if stored.expires_at < now:
+        _clear_auth_cookies(response)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sessão expirada. Faça login novamente.")
+
+    user = db.get(User, stored.user_id)
+    if user is None:
+        _clear_auth_cookies(response)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Usuário não encontrado.")
+
+    # Rotação: revoga o refresh token atual e emite um novo (mitiga replay).
+    stored.revoked = True
+
+    new_access = auth.create_access_token(str(user.id))
+    new_refresh, new_refresh_hash, expires_at = auth.create_refresh_token(str(user.id))
+    db.add(RefreshToken(
+        user_id=user.id,
+        token_hash=new_refresh_hash,
+        user_agent=request.headers.get("user-agent", "")[:255],
+        ip_address=request.client.host if request.client else None,
+        expires_at=expires_at,
+    ))
+    db.commit()
+
+    _set_auth_cookies(response, new_access, new_refresh)
+    return {"status": "ok"}
+
+
+@router.post("/logout")
+def logout(request: Request, response: Response, db: Session = Depends(get_db)):
+    token = request.cookies.get(REFRESH_COOKIE_NAME)
+    if token:
+        token_hash = auth.hash_token(token)
+        db.query(RefreshToken).filter(RefreshToken.token_hash == token_hash).update({"revoked": True})
+        db.commit()
+
+    _clear_auth_cookies(response)
+    return {"status": "ok"}
+
+
+@router.post("/logout/all")
+def logout_all(
+    request: Request,
+    response: Response,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Revoga todas as sessões do usuário (ex: 'Sair de todos os dispositivos')."""
+    db.query(RefreshToken).filter(RefreshToken.user_id == current_user.id).update({"revoked": True})
+    db.commit()
+    _clear_auth_cookies(response)
+    return {"status": "ok"}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# 2FA — setup e gerenciamento (requer estar autenticado)
+# ──────────────────────────────────────────────────────────────────────────
+
+@router.post("/2fa/setup")
+def setup_2fa(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """
+    Gera um novo secret TOTP (ainda não ativado) e retorna o QR code.
+    O usuário precisa confirmar com um código válido em /2fa/enable
+    antes do 2FA ser de fato ativado.
+    """
+    if current_user.totp_enabled:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="2FA já está ativado nesta conta.")
+
+    secret = auth.generate_totp_secret()
+    current_user.totp_secret = secret  # ainda não habilitado (totp_enabled=False)
+    db.commit()
+
+    uri = auth.get_totp_uri(secret, current_user.email)
+    qr_base64 = auth.generate_qr_code_base64(uri)
+
+    return {
+        "secret": secret,            # permite digitação manual no app
+        "qr_code_base64": qr_base64,  # <img src="data:image/png;base64,...">
+        "otpauth_uri": uri,
+    }
+
+
+@router.post("/2fa/enable")
+def enable_2fa(
+    payload: TwoFactorVerifyRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Confirma o setup do 2FA validando um código gerado pelo app autenticador."""
+    if current_user.totp_enabled:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="2FA já está ativado.")
+
+    if not current_user.totp_secret:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Inicie o processo em /auth/2fa/setup primeiro.")
+
+    if not auth.verify_totp_code(current_user.totp_secret, payload.code):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Código de verificação inválido.")
+
+    current_user.totp_enabled = True
+    recovery_codes = auth.generate_recovery_codes()
+    current_user.totp_recovery_codes = [auth.hash_recovery_code(c) for c in recovery_codes]
+    db.commit()
+
+    return {
+        "status": "enabled",
+        # Exibidos UMA ÚNICA VEZ — o frontend deve instruir o usuário a salvá-los.
+        "recovery_codes": recovery_codes,
+    }
+
+
+class TwoFactorDisableRequest(BaseModel):
+    password: str | None = None
+    code: str | None = None
+
+
+@router.post("/2fa/disable")
+def disable_2fa(
+    payload: TwoFactorDisableRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not current_user.totp_enabled:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="2FA não está ativado.")
+
+    # Exige reconfirmação (senha OU código TOTP) para desativar — evita que
+    # uma sessão sequestrada desligue a proteção sem nova autenticação.
+    verified = False
+    if payload.code and current_user.totp_secret:
+        verified = auth.verify_totp_code(current_user.totp_secret, payload.code)
+    if not verified and payload.password and current_user.password_hash:
+        verified = auth.verify_password(payload.password, current_user.password_hash)
+
+    if not verified:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Confirme com sua senha ou um código do app autenticador para desativar o 2FA.",
+        )
+
+    current_user.totp_enabled = False
+    current_user.totp_secret = None
+    current_user.totp_recovery_codes = []
+    db.commit()
+    return {"status": "disabled"}
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Google OAuth
+# ──────────────────────────────────────────────────────────────────────────
+#
+# Configuração necessária (variáveis de ambiente):
+#   GOOGLE_CLIENT_ID
+#   GOOGLE_CLIENT_SECRET
+#   GOOGLE_REDIRECT_URI   (ex: http://localhost:8000/auth/google/callback)
+#
+# No Google Cloud Console:
+#   1. APIs & Services > Credentials > Create Credentials > OAuth client ID
+#   2. Tipo: "Web application"
+#   3. Authorized redirect URIs: adicione exatamente o valor de
+#      GOOGLE_REDIRECT_URI acima.
+#   4. Configure a tela de consentimento OAuth (OAuth consent screen) com
+#      pelo menos: nome do app, e-mail de suporte, escopos "openid",
+#      "email", "profile".
+
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+GOOGLE_REDIRECT_URI = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/auth/google/callback")
+
+oauth = OAuth()
+if GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET:
+    oauth.register(
+        name="google",
+        client_id=GOOGLE_CLIENT_ID,
+        client_secret=GOOGLE_CLIENT_SECRET,
+        server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
+        client_kwargs={"scope": "openid email profile"},
+    )
+
+
+def _google_configured() -> bool:
+    return bool(GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET)
+
+
+@router.get("/google/login")
+async def google_login(request: Request):
+    if not _google_configured():
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Login com Google não está configurado neste ambiente.",
+        )
+    redirect_uri = GOOGLE_REDIRECT_URI
+    return await oauth.google.authorize_redirect(request, redirect_uri)
+
+
+@router.get("/google/callback")
+async def google_callback(request: Request, db: Session = Depends(get_db)):
+    if not _google_configured():
+        raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Login com Google não está configurado.")
+
+    try:
+        token = await oauth.google.authorize_access_token(request)
+    except OAuthError as e:
+        return RedirectResponse(f"{FRONTEND_URL}/login?error=google_oauth_failed&detail={e.error}")
+
+    userinfo = token.get("userinfo")
+    if not userinfo:
+        return RedirectResponse(f"{FRONTEND_URL}/login?error=google_oauth_failed")
+
+    google_sub = userinfo["sub"]
+    email = userinfo.get("email", "").lower().strip()
+    email_verified = bool(userinfo.get("email_verified", False))
+    name = userinfo.get("name") or email.split("@")[0]
+    picture = userinfo.get("picture")
+
+    # 1. Já existe um usuário vinculado a este google_sub?
+    user = db.query(User).filter(User.google_sub == google_sub).first()
+
+    if user is None and email:
+        # 2. Existe um usuário com este e-mail (cadastrado via senha)?
+        #    Só vincula automaticamente se o Google confirma o e-mail —
+        #    caso contrário, alguém poderia sequestrar uma conta criando
+        #    um e-mail não verificado igual ao de outra pessoa.
+        existing = db.query(User).filter(User.email == email).first()
+        if existing and email_verified:
+            existing.google_sub = google_sub
+            existing.avatar_url = existing.avatar_url or picture
+            existing.email_verified = True
+            user = existing
+        elif existing and not email_verified:
+            return RedirectResponse(f"{FRONTEND_URL}/login?error=email_in_use")
+
+    if user is None:
+        # 3. Novo usuário via Google.
+        user = User(
+            email=email,
+            google_sub=google_sub,
+            full_name=name,
+            preferred_name=name.split(" ")[0],
+            avatar_url=picture,
+            email_verified=email_verified,
+            password_hash=None,
+        )
+        db.add(user)
+        db.commit()
+        db.refresh(user)
+    else:
+        db.commit()
+
+    # Usuários vinculados ao Google e com 2FA ativo ainda passam pelo
+    # desafio de 2FA antes de receber os cookies de sessão.
+    if user.totp_enabled:
+        challenge_token = _create_2fa_challenge(str(user.id))
+        return RedirectResponse(f"{FRONTEND_URL}/login?twofa_challenge={challenge_token}")
+
+    response = RedirectResponse(f"{FRONTEND_URL}/auth/callback")
+    _issue_session(db, user, request, response)
+    return response

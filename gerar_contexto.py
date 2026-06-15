@@ -1,7 +1,7 @@
 import os
 
 # Configurações
-ROOT_DIR = "D:/IA_contextualizada"
+ROOT_DIR = "."
 OUTPUT_FILE = "contexto_projeto.txt"
 # Pastas que não queremos ler (muito pesadas ou irrelevantes)
 IGNORE_DIRS = {
