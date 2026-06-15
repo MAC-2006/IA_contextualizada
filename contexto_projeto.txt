@@ -3751,7 +3751,7 @@ import axios from 'axios';
 // withCredentials = true é OBRIGATÓRIO para que o browser envie/receba
 // cookies httpOnly entre o frontend (localhost:5173) e o backend (localhost:8000).
 const api = axios.create({
-  baseURL: 'http://localhost:8000',
+  baseURL: 'https://fantastic-space-yodel-6j4wrg6xp6p34wgj-8000.app.github.dev',
   withCredentials: true,
 });
 
@@ -4074,7 +4074,7 @@ export default function App() {
   // frontend. Nada de token no frontend — o backend emite o cookie httpOnly.
 
   function handleGoogleLogin() {
-    window.location.href = 'http://localhost:8000/auth/google/login';
+    window.location.href = 'https://fantastic-space-yodel-6j4wrg6xp6p34wgj-8000.app.github.dev/auth/google/login';
   }
 
   // Handle redirect back from Google (/auth/callback on the frontend)
@@ -5412,6 +5412,7 @@ ARQUIVO: backend/main.py
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.sessions import SessionMiddleware # <--- Importado
 from pydantic import BaseModel
 from typing import Optional
 import shutil
@@ -5422,25 +5423,34 @@ from ingestao import processar_arquivo
 from consulta import responder_pergunta
 from auth_router import router as auth_router
 
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Cria as tabelas no banco ao iniciar o servidor."""
     init_db()
     yield
 
-
 app = FastAPI(title="ProMind API", lifespan=lifespan)
+
+# 1. Middleware de Sessão (Obrigatório para Google Login / Authlib)
+# Ele usa o JWT_SECRET do seu .env para proteger os dados da sessão
+app.add_middleware(
+    SessionMiddleware, 
+    secret_key=os.getenv("JWT_SECRET", "uma-chave-muito-secreta-provisoria")
+)
+
+# 2. Configuração de CORS
+# Ajustado para ler a URL do seu frontend do Codespace definida no .env
+frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[os.getenv("FRONTEND_URL", "http://localhost:5173")],
+    allow_origins=[frontend_url],
     allow_credentials=True,   # OBRIGATÓRIO para cookies httpOnly funcionarem
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ── Rotas de autenticação ─────────────────────────────────────────────────────
+# 3. Rotas de autenticação
 app.include_router(auth_router)
 
 
@@ -6157,7 +6167,7 @@ from jose import JWTError
 import auth
 from database import get_db
 from models import RefreshToken, User
-
+import uuid  # Adicione esta linha no topo
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -6284,7 +6294,7 @@ class PasswordCheckRequest(BaseModel):
 
 
 class UserOut(BaseModel):
-    id: str
+    id: uuid.UUID  # <--- Mude de str para uuid.UUID
     email: str
     full_name: str | None
     preferred_name: str | None

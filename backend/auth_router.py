@@ -36,7 +36,7 @@ from jose import JWTError
 import auth
 from database import get_db
 from models import RefreshToken, User
-
+import uuid  # Adicione esta linha no topo
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -163,7 +163,7 @@ class PasswordCheckRequest(BaseModel):
 
 
 class UserOut(BaseModel):
-    id: str
+    id: uuid.UUID  # <--- Mude de str para uuid.UUID
     email: str
     full_name: str | None
     preferred_name: str | None
