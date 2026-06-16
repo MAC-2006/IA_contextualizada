@@ -12,7 +12,7 @@ import axios from 'axios';
 // withCredentials = true é OBRIGATÓRIO para que o browser envie/receba
 // cookies httpOnly entre o frontend (localhost:5173) e o backend (localhost:8000).
 const api = axios.create({
-  baseURL: 'https://fantastic-space-yodel-6j4wrg6xp6p34wgj-8000.app.github.dev',
+  baseURL: import.meta.env.VITE_API_URL || 'http://localhost:8000',
   withCredentials: true,
 });
 
