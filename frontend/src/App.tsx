@@ -16,6 +16,15 @@ const api = axios.create({
   withCredentials: true,
 });
 
+// Interceptor: envia token do localStorage em toda requisição (cross-domain)
+api.interceptors.request.use((config) => {
+  const token = localStorage.getItem('access_token');
+  if (token) {
+    config.headers['Authorization'] = `Bearer ${token}`;
+  }
+  return config;
+});
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 type Screen =
@@ -341,6 +350,12 @@ export default function App() {
   // Handle redirect back from Google (/auth/callback on the frontend)
   useEffect(() => {
     if (window.location.pathname === '/auth/callback') {
+      const params = new URLSearchParams(window.location.search);
+      const token = params.get('token');
+      if (token) {
+        localStorage.setItem('access_token', token);
+        api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+      }
       api.get('/auth/me').then(res => {
         setProfile(p => ({ ...p, ...res.data }));
         window.history.replaceState({}, '', '/');

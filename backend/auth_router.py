@@ -112,6 +112,10 @@ def _issue_session(db: Session, user: User, request: Request, response: Response
 def get_current_user(request: Request, db: Session = Depends(get_db)) -> User:
     token = request.cookies.get(ACCESS_COOKIE_NAME)
     if not token:
+        auth_header = request.headers.get("Authorization", "")
+        if auth_header.startswith("Bearer "):
+            token = auth_header[7:]
+    if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Não autenticado.")
 
     try:
@@ -645,6 +649,10 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
         challenge_token = _create_2fa_challenge(str(user.id))
         return RedirectResponse(f"{FRONTEND_URL}/login?twofa_challenge={challenge_token}")
 
-    response = RedirectResponse(f"{FRONTEND_URL}/auth/callback")
-    _issue_session(db, user, request, response)
-    return response
+    # Gera tokens e redireciona com token na URL (cross-domain)
+    access_token = auth.create_access_token(str(user.id))
+    jti, refresh_token, expires_at = auth.create_refresh_token(str(user.id))
+    from models import RefreshToken
+    db.add(RefreshToken(jti=jti, user_id=user.id, expires_at=expires_at))
+    db.commit()
+    return RedirectResponse(f"{FRONTEND_URL}/auth/callback?token={access_token}")
