@@ -30,10 +30,11 @@ app.add_middleware(
 # 2. Configuração de CORS
 # Ajustado para ler a URL do seu frontend do Codespace definida no .env
 frontend_url = os.getenv("FRONTEND_URL", "http://localhost:5173")
+allowed_origins = [o.strip() for o in frontend_url.split(",") if o.strip()]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[frontend_url],
+    allow_origins=allowed_origins,
     allow_credentials=True,   # OBRIGATÓRIO para cookies httpOnly funcionarem
     allow_methods=["*"],
     allow_headers=["*"],
