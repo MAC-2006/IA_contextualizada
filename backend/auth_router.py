@@ -653,6 +653,6 @@ async def google_callback(request: Request, db: Session = Depends(get_db)):
     access_token = auth.create_access_token(str(user.id))
     jti, refresh_token, expires_at = auth.create_refresh_token(str(user.id))
     from models import RefreshToken
-    db.add(RefreshToken(jti=jti, user_id=user.id, expires_at=expires_at))
+    db.add(RefreshToken(token_hash=auth.hash_token(refresh_token), user_id=user.id, expires_at=expires_at))
     db.commit()
     return RedirectResponse(f"{FRONTEND_URL}/auth/callback?token={access_token}")
