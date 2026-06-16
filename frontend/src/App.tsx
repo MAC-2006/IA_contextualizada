@@ -335,7 +335,7 @@ export default function App() {
   // frontend. Nada de token no frontend — o backend emite o cookie httpOnly.
 
   function handleGoogleLogin() {
-    window.location.href = 'https://fantastic-space-yodel-6j4wrg6xp6p34wgj-8000.app.github.dev/auth/google/login';
+    window.location.href = (import.meta.env.VITE_API_URL || 'http://localhost:8000') + '/auth/google/login';
   }
 
   // Handle redirect back from Google (/auth/callback on the frontend)
