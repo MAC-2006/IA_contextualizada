@@ -2,7 +2,6 @@ import os
 from typing import Optional
 
 from qdrant_client import QdrantClient
-import ollama
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -12,7 +11,11 @@ EMBED_MODEL = "nomic-embed-text"
 CHAT_MODEL = os.getenv("CHAT_MODEL", "llama3.2:3b")
 TOP_K = 5  # quantos chunks recuperar por pergunta
 
-client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
+if QDRANT_API_KEY:
+    client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT, api_key=QDRANT_API_KEY, https=True)
+else:
+    client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
 
 # ─── System prompts por profissão ─────────────────────────────────────────────
 
@@ -51,8 +54,14 @@ SYSTEM_PROMPTS = {
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def get_embedding(text: str) -> list[float]:
-    response = ollama.embeddings(model=EMBED_MODEL, prompt=text)
-    return response["embedding"]
+    import os
+    from groq import Groq
+    groq_key = os.getenv("GROQ_API_KEY")
+    if groq_key:
+        client_groq = Groq(api_key=groq_key)
+        response = client_groq.embeddings.create(model=EMBED_MODEL, input=text)
+        return response.data[0].embedding
+    raise RuntimeError("GROQ_API_KEY não definida")
 
 
 def buscar_chunks(question: str, collection_name: str, top_k: int = TOP_K) -> list[dict]:
@@ -130,12 +139,15 @@ def responder_pergunta(
     )
 
     # Chamada ao modelo local
-    response = ollama.chat(
+    from groq import Groq
+    groq_key = os.getenv("GROQ_API_KEY")
+    groq_client = Groq(api_key=groq_key)
+    response = groq_client.chat.completions.create(
         model=CHAT_MODEL,
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},
         ],
+        max_tokens=2048,
     )
-
-    return response["message"]["content"]
+    return response.choices[0].message.content

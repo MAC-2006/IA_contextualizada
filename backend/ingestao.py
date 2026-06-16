@@ -14,7 +14,6 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 import pandas as pd
-import ollama
 
 # ─── Config ───────────────────────────────────────────────────────────────────
 
@@ -25,14 +24,24 @@ VECTOR_SIZE = 768
 CHUNK_SIZE = 1000
 CHUNK_OVERLAP = 100
 
-client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
+QDRANT_API_KEY = os.getenv("QDRANT_API_KEY")
+if QDRANT_API_KEY:
+    client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT, api_key=QDRANT_API_KEY, https=True)
+else:
+    client = QdrantClient(host=QDRANT_HOST, port=QDRANT_PORT)
 
 # ─── Embedding ────────────────────────────────────────────────────────────────
 
 def get_embedding(text: str) -> list[float]:
-    """Gera embedding via Ollama (nomic-embed-text, 768 dims)."""
-    response = ollama.embeddings(model=EMBED_MODEL, prompt=text)
-    return response["embedding"]
+    """Gera embedding via Groq (nomic-embed-text)."""
+    import os
+    from groq import Groq
+    groq_key = os.getenv("GROQ_API_KEY")
+    if groq_key:
+        client = Groq(api_key=groq_key)
+        response = client.embeddings.create(model=EMBED_MODEL, input=text)
+        return response.data[0].embedding
+    raise RuntimeError("GROQ_API_KEY não definida")
 
 
 # ─── Loaders por tipo de arquivo ─────────────────────────────────────────────
